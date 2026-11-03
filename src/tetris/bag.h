@@ -3,6 +3,7 @@
 
 #include <array>
 #include <cstdint>
+#include <vector>
 
 #include "tetris/go_rand.h"
 #include "tetris/types.h"
@@ -14,6 +15,12 @@ class Bag7 {
   explicit Bag7(int64_t seed);
 
   PieceType Next();
+
+  // Remaining pieces in the current bag (not yet drawn). Does not refill.
+  // Empty when the bag is exhausted (next Next() will refill).
+  // Used as optional critic bag-peek; actor features leave these zeros
+  // (imperfect information).
+  std::vector<PieceType> PeekRemaining() const;
 
  private:
   void Refill();

@@ -20,4 +20,12 @@ PieceType Bag7::Next() {
   return bag_[static_cast<size_t>(next_++)];
 }
 
+std::vector<PieceType> Bag7::PeekRemaining() const {
+  std::vector<PieceType> out;
+  for (int i = next_; i < 7; ++i) {
+    out.push_back(bag_[static_cast<size_t>(i)]);
+  }
+  return out;
+}
+
 }  // namespace tetris

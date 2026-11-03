@@ -62,6 +62,9 @@ class Game {
   Board& mutable_board() { return board_; }
   const Board& board() const { return board_; }
 
+  // Remaining pieces in the current 7-bag (critic peek). Empty near bag end.
+  std::vector<PieceType> PeekBagRemaining() const { return bag_.PeekRemaining(); }
+
   // Force an active piece (tests).
   void ForcePiece(PieceType t, int rot, int x, int y) {
     piece_ = ActivePiece{t, rot, x, y};

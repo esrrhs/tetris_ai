@@ -19,18 +19,53 @@ else()
   endif()
 endif()
 
+find_package(Threads REQUIRED)
+
+# ---- Core (no Torch) ----
 add_library(tetris_ai_core STATIC
   src/tetris/shapes.cpp
   src/tetris/bag.cpp
   src/tetris/board.cpp
   src/tetris/game.cpp
   src/tetris/render.cpp
+  src/tetris/features.cpp
+  src/tetris/env.cpp
 )
 target_include_directories(tetris_ai_core PUBLIC src)
 
 add_executable(tetris_ai_demo src/demo/main.cpp)
 target_link_libraries(tetris_ai_demo PRIVATE tetris_ai_core)
 
+# ---- Optional LibTorch RL ----
+option(TETRIS_AI_WITH_TORCH "Build PPO training with LibTorch" ON)
+set(TETRIS_AI_TORCH_FOUND FALSE)
+if(TETRIS_AI_WITH_TORCH)
+  find_package(Torch QUIET)
+  if(Torch_FOUND)
+    set(TETRIS_AI_TORCH_FOUND TRUE)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
+    message(STATUS "LibTorch found: building tetris_ai_rl + tetris_ai_train")
+  else()
+    message(STATUS "LibTorch not found: skipping RL targets (core + tests only)")
+  endif()
+endif()
+
+if(TETRIS_AI_TORCH_FOUND)
+  add_library(tetris_ai_rl STATIC
+    src/algo/ppo.cpp
+    src/algo/rollout.cpp
+    src/torch_nn/models.cpp
+    src/torch_nn/ppo_learner.cpp
+    src/torch_nn/tensor_bridge.cpp
+  )
+  target_include_directories(tetris_ai_rl PUBLIC src ${TORCH_INCLUDE_DIRS})
+  target_link_libraries(tetris_ai_rl PUBLIC tetris_ai_core Threads::Threads ${TORCH_LIBRARIES})
+
+  add_executable(tetris_ai_train src/train.cpp)
+  target_link_libraries(tetris_ai_train PRIVATE tetris_ai_rl)
+endif()
+
+# ---- Tests ----
 enable_testing()
 include(FetchContent)
 FetchContent_Declare(
@@ -46,3 +81,13 @@ include(GoogleTest)
 add_executable(test_game tests/test_game.cpp)
 target_link_libraries(test_game PRIVATE tetris_ai_core GTest::gtest_main)
 gtest_discover_tests(test_game)
+
+add_executable(test_rl_env tests/test_rl_env.cpp)
+target_link_libraries(test_rl_env PRIVATE tetris_ai_core GTest::gtest_main)
+gtest_discover_tests(test_rl_env)
+
+if(TETRIS_AI_TORCH_FOUND)
+  add_executable(test_rl tests/test_rl.cpp)
+  target_link_libraries(test_rl PRIVATE tetris_ai_rl GTest::gtest_main)
+  gtest_discover_tests(test_rl)
+endif()
