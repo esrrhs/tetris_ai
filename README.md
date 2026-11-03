@@ -63,7 +63,7 @@ Agent 每步在当前活动方块上选择一个 **最终落点** `(rot, x)`：�
 `Env`（`src/tetris/env.*`）：
 
 - `Reset(seed)`：`Step({})` 直到有活动方块，返回 observation。
-- `Step(placement_id | LegalOption)`：应用 ops+HardDrop；锁定后若未结束，自动 `Step({})` **重生下一块**，保证 agent 始终看到带活动方块的状态（或 Done）。Reward = 本次决策消行数。
+- `Step(placement_id | LegalOption)`：应用 ops+HardDrop；锁定后若未结束，自动 `Step({})` **重生下一块**，保证 agent 始终看到带活动方块的状态（或 Done）。Reward = `lineCoef * lines` + optional potential dense shaping（见下）。
 - `LegalOptions()`：当前状态合法落点。
 
 ### Feature dims
@@ -81,26 +81,62 @@ Agent 每步在当前活动方块上选择一个 **最终落点** `(rot, x)`：�
 - `Actor`: `joint = concat(state, actionFeat)` → MLP → scalar logit；对合法 option 做 masked softmax（见 `algo/ppo.cpp`）。
 - `Critic`: state → MLP → value。
 - `PPOLearner::update`: clip、entropy、value loss、grad clip、可选 KL early stop。
-- `collectRollout`: 同步线程池收集 Env episode + GAE（`assignEpisodeReturns`）。
+- `collectRollout`: 同步线程池收集 Env episode + GAE（`assignEpisodeReturns`）；可选 historical league eval games。
+
+### Dense (potential) reward
+
+Tetris analogue of PerfectDou’s oracle shaping — **potential-based shaping on board metrics**, not DouZero card-oracle:
+
+```
+φ = wH * aggregate_height + wHole * holes + wBump * bumpiness
+reward = lineCoef * lines_cleared + denseCoef * (φ_before - φ_after)
+       + (done ? deathPenalty : 0)
+```
+
+Defaults: `wH=1`, `wHole=1`, `wBump=0.5`, `lineCoef=1`, `denseCoef=0.01`, `deathPenalty=-1`, `denseReward=true`.
+
+CLI: `--dense-reward` / `--no-dense-reward`, `--dense-coef`, `--line-coef`, `--death-penalty`, `--w-height`, `--w-hole`, `--w-bump`.
+
+### Historical league pool (single-agent)
+
+PerfectDou-style `HistoricalPool` with `recent` (ring) + `archive` (geometric / centennial promotion).
+
+- Each update collects exactly `--games` **learning** games with the **current** CPU actor → PPO buffer.
+- When the pool is non-empty, also plays `round(games * historicalProb)` **extra league-eval** games with a randomly sampled historical actor (50/50 archive vs recent). Those transitions are **not** written to the learning buffer; only `leagueGames` / `leagueMeanLines` / `leagueMeanScore` are logged.
+- After each update (every `--pool-every`), push the current CPU actor into `recent`; periodically also copy into `archive`.
+- Saved under `--out/pool/` as `recent_*.pt`, `archive_*.pt`, and `pool_meta.txt`. `--resume DIR` reloads actor/critic/optim + pool.
+
+CLI: `--historical-prob`, `--pool-size`, `--archive-size`, `--pool-every`, `--resume`.
+
+### Backend: CUDA / MPS / CPU
+
+`--backend cuda|mps|cpu` is **explicit** (no silent auto-detect):
+
+- `cuda`: requires `torch::cuda::is_available()`, else fatal.
+- `mps`: requires Apple + MPS-enabled LibTorch (`torch::mps::is_available()`), else fatal.
+- `cpu`: always available.
+
+PPO learner + batch tensors live on the selected device. **Rollout inference always uses CPU actor/critic copies** (thread safety / no GPU contention). After each `learner.update`, trained weights are synced back to the CPU rollout modules.
+
+This environment’s packaged LibTorch is **CPU-only**; `--backend cuda` needs a CUDA LibTorch build + GPU. The code path still compiles and selects correctly.
 
 ### 构建训练（LibTorch）
 
-需要 CPU LibTorch（如 2.5.1 cxx11 ABI）并设置 `CMAKE_PREFIX_PATH`：
+需要 LibTorch（如 2.5.1 cxx11 ABI）并设置 `CMAKE_PREFIX_PATH`：
 
 ```bash
 export PATH="/home/box/.local/cmake/bin:$PATH"
 cmake -S . -B build -DCMAKE_PREFIX_PATH=/workspace/deps/libtorch
 cmake --build build -j
-./build/tetris_ai_train --updates 2 --games 8 --threads 2 --out /tmp/tetris_ckpt
+ctest --test-dir build --output-on-failure
+./build/tetris_ai_train --updates 3 --games 8 --threads 2 \
+  --pool-every 1 --pool-size 4 --archive-size 2 --historical-prob 0.5 \
+  --dense-reward --out /tmp/tetris_ckpt2 --backend cpu
 ```
 
-CLI：`--updates` `--games` `--threads` `--hidden` `--lr` `--epochs` `--mb` `--gamma` `--lambda` `--seed` `--out` `--backend cpu`（cuda 可后续接）。
+CLI (main): `--updates` `--games` `--threads` `--hidden` `--lr` `--epochs` `--mb` `--gamma` `--lambda` `--seed` `--out` `--backend` `--resume` plus dense-reward and league-pool flags above.
 
 CMake：`TETRIS_AI_WITH_TORCH`（找到 Torch 时 ON）构建 `tetris_ai_rl`、`tetris_ai_train`、可选 `test_rl`。未找到 Torch 时核心与 `test_game` / `test_rl_env` 仍可构建。
-
-### Future PerfectDou ports（out of scope v1）
-
-League historical pool、Oracle dense rewards、eval vs external bots、CUDA-only paths。
 
 ## 布局 / Layout
 

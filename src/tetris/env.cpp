@@ -20,6 +20,22 @@ EnvStepResult Env::MakeResult(double reward, int lines_cleared) const {
   return r;
 }
 
+double Env::ShapeReward(const BoardMetrics& before, const BoardMetrics& after,
+                        int lines_cleared, bool done) const {
+  double reward = static_cast<double>(reward_.lineCoef) *
+                  static_cast<double>(lines_cleared);
+  if (reward_.denseReward) {
+    float phiBefore = BoardPotential(before, reward_);
+    float phiAfter = BoardPotential(after, reward_);
+    reward += static_cast<double>(reward_.denseCoef) *
+              static_cast<double>(phiBefore - phiAfter);
+  }
+  if (done) {
+    reward += static_cast<double>(reward_.deathPenalty);
+  }
+  return reward;
+}
+
 EnvStepResult Env::Reset(int64_t seed) {
   game_ = Game(seed);
   EnsureActivePiece();
@@ -51,30 +67,36 @@ EnvStepResult Env::Step(const LegalOption& opt) {
     if (game_.Done()) return MakeResult(0.0, 0);
   }
 
+  BoardMetrics before = ComputeBoardMetrics(game_.board());
+
   Result lock = game_.Step(opt.ops);
-  double reward = lock.reward;
   int lines = lock.info.lines_cleared;
 
   // Auto-spawn so the agent always sees an active piece (or Done).
   if (!game_.Done() && !game_.HasActivePiece()) {
     Result spawn = game_.Step();
-    // Spawn never clears lines; reward unchanged.
     (void)spawn;
   }
+
+  BoardMetrics after = ComputeBoardMetrics(game_.board());
+  bool done = game_.Done();
+  double reward = ShapeReward(before, after, lines, done);
   return MakeResult(reward, lines);
 }
 
 EnvStepResult Env::Step(int placement_id) {
   auto opts = LegalOptions();
   if (placement_id < 0 || placement_id >= static_cast<int>(opts.size())) {
-    // Invalid id: treat as no-op hard-drop of current pose if possible.
     if (!opts.empty()) {
       return Step(opts.front());
     }
-    // No legal moves → force a hard drop tick then respawn path.
+    BoardMetrics before = ComputeBoardMetrics(game_.board());
     Result r = game_.Step(Op::HardDrop);
     if (!game_.Done() && !game_.HasActivePiece()) game_.Step();
-    return MakeResult(r.reward, r.info.lines_cleared);
+    BoardMetrics after = ComputeBoardMetrics(game_.board());
+    bool done = game_.Done();
+    double reward = ShapeReward(before, after, r.info.lines_cleared, done);
+    return MakeResult(reward, r.info.lines_cleared);
   }
   return Step(opts[static_cast<size_t>(placement_id)]);
 }

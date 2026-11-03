@@ -7,8 +7,12 @@
 //     done, auto Step({}) to spawn the next piece so the agent always observes
 //     a state with an active piece (or Done).
 //
-// Reward = lines cleared on the agent decision (lock step). Auto-spawn clears
-// none, so reward equals the lock Result::reward.
+// Base reward = lineCoef * lines_cleared on the agent decision (lock step).
+// Optional potential-based dense shaping (Ng et al.):
+//   φ = wH * aggregate_height + wHole * holes + wBump * bumpiness
+//   reward = lineCoef * lines + denseCoef * (φ_before - φ_after)
+//   + deathPenalty if the step ends the game.
+// This is Tetris board-metric shaping, not DouZero card-oracle reward.
 #pragma once
 
 #include <array>
@@ -22,6 +26,22 @@
 
 namespace tetris {
 
+struct EnvRewardConfig {
+  bool denseReward = true;
+  float denseCoef = 0.01f;
+  float lineCoef = 1.0f;
+  float wH = 1.0f;
+  float wHole = 1.0f;
+  float wBump = 0.5f;
+  float deathPenalty = -1.0f;
+};
+
+// Potential φ(board) used by dense shaping.
+inline float BoardPotential(const BoardMetrics& m, const EnvRewardConfig& cfg) {
+  return cfg.wH * m.aggregate_height + cfg.wHole * m.holes +
+         cfg.wBump * m.bumpiness;
+}
+
 struct EnvStepResult {
   std::array<float, kStateSize> state{};
   double reward = 0;
@@ -34,6 +54,10 @@ struct EnvStepResult {
 class Env {
  public:
   Env() : game_(0) {}
+  explicit Env(const EnvRewardConfig& reward) : game_(0), reward_(reward) {}
+
+  void setRewardConfig(const EnvRewardConfig& cfg) { reward_ = cfg; }
+  const EnvRewardConfig& rewardConfig() const { return reward_; }
 
   // New game; Step({}) until an active piece exists (or Done).
   // Returns actor-facing state (no bag peek).
@@ -57,8 +81,11 @@ class Env {
  private:
   EnvStepResult MakeResult(double reward, int lines_cleared) const;
   void EnsureActivePiece();
+  double ShapeReward(const BoardMetrics& before, const BoardMetrics& after,
+                     int lines_cleared, bool done) const;
 
   Game game_;
+  EnvRewardConfig reward_{};
 };
 
 }  // namespace tetris

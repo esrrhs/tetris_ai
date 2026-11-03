@@ -3,8 +3,10 @@
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <vector>
 
+#include "tetris/env.h"
 #include "tetris/features.h"
 #include "torch_nn/models.h"
 
@@ -34,6 +36,27 @@ struct RolloutStats {
   double meanLines = 0;
   double meanScore = 0;
   double meanEpisodeLen = 0;
+
+  // League-eval games vs historical actors (not used for PPO learning).
+  int leagueGames = 0;
+  long long leagueTotalLines = 0;
+  long long leagueTotalScore = 0;
+  double leagueMeanLines = 0;
+  double leagueMeanScore = 0;
+};
+
+// Single-agent historical actor snapshot (PerfectDou-style league pool).
+struct HistoricalActorSnapshot {
+  torch_nn::Actor actor;
+  int update = 0;
+};
+
+// Hierarchical league pool: recent ring + geometrically spaced archive.
+struct HistoricalPool {
+  std::vector<std::shared_ptr<HistoricalActorSnapshot>> recent;
+  std::vector<std::shared_ptr<HistoricalActorSnapshot>> archive;
+
+  bool empty() const { return recent.empty() && archive.empty(); }
 };
 
 struct RolloutConfig {
@@ -41,6 +64,17 @@ struct RolloutConfig {
   int threads = 2;
   uint64_t seed = 1;
   int maxStepsPerGame = 500;  // safety cap on agent decisions
+
+  // Dense (potential) reward — forwarded to Env.
+  tetris::EnvRewardConfig reward{};
+
+  // League eval: with non-empty pool, also play
+  //   round(gamesPerUpdate * historicalProb)
+  // extra games with a sampled historical actor. Those transitions are NOT
+  // written to the PPO buffer; only league* stats are updated.
+  // Learning always collects exactly gamesPerUpdate games with the current actor.
+  float historicalProb = 0.2f;
+  const HistoricalPool* historicalPool = nullptr;
 };
 
 struct ModelSet {

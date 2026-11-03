@@ -12,97 +12,154 @@
 namespace algo {
 namespace {
 
-void runWorker(const ModelSet& models, const RolloutConfig& cfg, int nGames,
-               uint64_t seed, std::vector<Transition>& out, RolloutStats& stats) {
+// Play one game with the given actor (+ optional critic for learning).
+// When collectTransitions is false (league eval), only episode stats are kept.
+void playGame(torch_nn::Actor* actor, torch_nn::Critic* critic,
+              const RolloutConfig& cfg, uint64_t seed, int gi,
+              bool collectTransitions, std::vector<Transition>& out,
+              int& epLines, int& epScore, int& epPieces, int& epLen) {
   torch::NoGradGuard no_grad;
-  std::mt19937_64 rng(seed);
+  std::mt19937_64 rng(seed ^ (static_cast<uint64_t>(gi) * 0x9e3779b97f4a7c15ULL));
 
-  for (int gi = 0; gi < nGames; ++gi) {
-    tetris::Env env;
-    int64_t gameSeed = static_cast<int64_t>(rng());
-    env.Reset(gameSeed);
+  tetris::Env env(cfg.reward);
+  int64_t gameSeed = static_cast<int64_t>(rng());
+  env.Reset(gameSeed);
 
-    int steps = 0;
-    int epLines = 0;
-    int epScore = 0;
-    int epLen = 0;
+  int steps = 0;
+  epLines = 0;
+  epScore = 0;
+  epPieces = 0;
+  epLen = 0;
 
-    while (!env.Done() && steps < cfg.maxStepsPerGame) {
-      auto options = env.LegalOptions();
-      if (options.empty()) break;
+  while (!env.Done() && steps < cfg.maxStepsPerGame) {
+    auto options = env.LegalOptions();
+    if (options.empty()) break;
 
-      Transition t;
-      env.EncodeActorState(t.state);
-      env.EncodeCriticState(t.criticState);
-      t.gameId = static_cast<int>(seed % 1000003) * 100000 + gi;
-      t.actions.clear();
-      t.actions.reserve(options.size());
-      for (const auto& o : options) {
-        t.actions.emplace_back(o.id, o.feature);
+    Transition t;
+    env.EncodeActorState(t.state);
+    env.EncodeCriticState(t.criticState);
+    t.gameId = static_cast<int>(seed % 1000003) * 100000 + gi;
+    t.actions.clear();
+    t.actions.reserve(options.size());
+    for (const auto& o : options) {
+      t.actions.emplace_back(o.id, o.feature);
+    }
+
+    const int n = static_cast<int>(options.size());
+    auto stateT = torch::from_blob(t.state.data(), {1, tetris::kStateSize},
+                                   torch::kFloat32)
+                      .clone();
+    auto actFeat = torch::empty({n, tetris::kActionFeatSize}, torch::kFloat32);
+    float* af = actFeat.data_ptr<float>();
+    for (int a = 0; a < n; ++a) {
+      std::memcpy(af + a * tetris::kActionFeatSize, options[a].feature.data(),
+                  tetris::kActionFeatSize * sizeof(float));
+    }
+    auto sample = torch::zeros({n}, torch::kLong);
+    auto actId = torch::arange(0, n, torch::kLong);
+
+    torch::Tensor logits = (*actor)->forward(stateT, actFeat, sample, actId);
+    std::vector<float> logitBuf(n), probBuf(n);
+    auto row = logits[0];
+    for (int a = 0; a < n; ++a) {
+      logitBuf[a] = row[a].item<float>();
+    }
+    maskedSoftmax(logitBuf.data(), n, probBuf.data());
+
+    float u = std::uniform_real_distribution<float>(0.f, 1.f)(rng);
+    float cum = 0.f;
+    int chosen = n - 1;
+    for (int a = 0; a < n; ++a) {
+      cum += probBuf[a];
+      if (u <= cum) {
+        chosen = a;
+        break;
       }
+    }
+    float p = std::max(probBuf[chosen], 1e-8f);
+    t.action = options[chosen].id;
+    t.logp = std::log(p);
 
-      const int n = static_cast<int>(options.size());
-      // Actor: score each (state, actionFeat) jointly.
-      auto stateT = torch::from_blob(t.state.data(), {1, tetris::kStateSize},
-                                     torch::kFloat32)
-                        .clone();
-      auto actFeat = torch::empty({n, tetris::kActionFeatSize}, torch::kFloat32);
-      float* af = actFeat.data_ptr<float>();
-      for (int a = 0; a < n; ++a) {
-        std::memcpy(af + a * tetris::kActionFeatSize, options[a].feature.data(),
-                    tetris::kActionFeatSize * sizeof(float));
-      }
-      auto sample = torch::zeros({n}, torch::kLong);  // all belong to batch 0
-      auto actId = torch::arange(0, n, torch::kLong);
-
-      torch::Tensor logits =
-          (*models.actor)->forward(stateT, actFeat, sample, actId);  // [1, maxA]
-      // Use only first n logits (local options packed at ids 0..n-1).
-      std::vector<float> logitBuf(n), probBuf(n);
-      auto row = logits[0];
-      for (int a = 0; a < n; ++a) {
-        logitBuf[a] = row[a].item<float>();
-      }
-      maskedSoftmax(logitBuf.data(), n, probBuf.data());
-
-      float u = std::uniform_real_distribution<float>(0.f, 1.f)(rng);
-      float cum = 0.f;
-      int chosen = n - 1;
-      for (int a = 0; a < n; ++a) {
-        cum += probBuf[a];
-        if (u <= cum) {
-          chosen = a;
-          break;
-        }
-      }
-      float p = std::max(probBuf[chosen], 1e-8f);
-      t.action = options[chosen].id;
-      t.logp = std::log(p);
-
+    if (collectTransitions && critic) {
       auto critIn = torch::from_blob(t.criticState.data(),
                                      {1, tetris::kStateSize}, torch::kFloat32)
                         .clone();
-      t.value = (*models.critic)->forward(critIn).squeeze().item<float>();
-
-      auto step = env.Step(options[chosen]);
-      t.reward = static_cast<float>(step.reward);
-      t.terminal = step.done;
-      out.push_back(std::move(t));
-
-      epLines = step.lines_cleared > 0 ? env.game().Lines() : env.game().Lines();
-      epScore = step.score;
-      ++epLen;
-      ++steps;
-      if (step.done) break;
+      t.value = (*critic)->forward(critIn).squeeze().item<float>();
     }
 
+    auto step = env.Step(options[chosen]);
+    t.reward = static_cast<float>(step.reward);
+    t.terminal = step.done;
+    if (collectTransitions) {
+      out.push_back(std::move(t));
+    }
+
+    ++epLen;
+    ++steps;
+    if (step.done) break;
+  }
+
+  epLines = env.game().Lines();
+  epScore = env.game().Score();
+  epPieces = env.game().PiecesPlaced();
+}
+
+void runLearningWorker(const ModelSet& models, const RolloutConfig& cfg,
+                       int nGames, uint64_t seed, std::vector<Transition>& out,
+                       RolloutStats& stats) {
+  for (int gi = 0; gi < nGames; ++gi) {
+    int epLines = 0, epScore = 0, epPieces = 0, epLen = 0;
+    playGame(models.actor, models.critic, cfg, seed, gi, /*collect=*/true, out,
+             epLines, epScore, epPieces, epLen);
     stats.games += 1;
-    stats.totalLines += env.game().Lines();
-    stats.totalScore += env.game().Score();
-    stats.totalPieces += env.game().PiecesPlaced();
+    stats.totalLines += epLines;
+    stats.totalScore += epScore;
+    stats.totalPieces += epPieces;
     stats.transitions += epLen;
-    (void)epLines;
-    (void)epScore;
+  }
+}
+
+// Sample a historical actor pointer (50/50 archive vs recent when both nonempty).
+torch_nn::Actor* sampleHistoricalActor(const HistoricalPool& pool,
+                                       std::mt19937_64& rng) {
+  bool hasRecent = !pool.recent.empty();
+  bool hasArchive = !pool.archive.empty();
+  if (!hasRecent && !hasArchive) return nullptr;
+
+  bool useArchive = false;
+  if (hasRecent && hasArchive) {
+    useArchive = std::uniform_real_distribution<float>(0.f, 1.f)(rng) < 0.5f;
+  } else if (hasArchive) {
+    useArchive = true;
+  }
+
+  if (useArchive) {
+    int n = static_cast<int>(pool.archive.size());
+    int idx = std::uniform_int_distribution<int>(0, n - 1)(rng);
+    return &pool.archive[static_cast<size_t>(idx)]->actor;
+  }
+  int n = static_cast<int>(pool.recent.size());
+  int idx = std::uniform_int_distribution<int>(0, n - 1)(rng);
+  return &pool.recent[static_cast<size_t>(idx)]->actor;
+}
+
+void runLeagueWorker(const RolloutConfig& cfg, int nGames, uint64_t seed,
+                     RolloutStats& stats) {
+  if (!cfg.historicalPool || cfg.historicalPool->empty() || nGames <= 0) return;
+  std::mt19937_64 rng(seed);
+  std::vector<Transition> discard;
+  for (int gi = 0; gi < nGames; ++gi) {
+    torch_nn::Actor* hist = sampleHistoricalActor(*cfg.historicalPool, rng);
+    if (!hist) continue;
+    (*hist)->eval();
+    int epLines = 0, epScore = 0, epPieces = 0, epLen = 0;
+    playGame(hist, nullptr, cfg, seed + 17ULL, gi, /*collect=*/false, discard,
+             epLines, epScore, epPieces, epLen);
+    stats.leagueGames += 1;
+    stats.leagueTotalLines += epLines;
+    stats.leagueTotalScore += epScore;
+    (void)epPieces;
+    (void)epLen;
   }
 }
 
@@ -133,7 +190,7 @@ void collectRollout(const ModelSet& models, const RolloutConfig& cfg,
                     static_cast<uint64_t>(t) * 0x9e3779b97f4a7c15ULL;
     offset += n;
     workers.emplace_back([&, t, n, seed]() {
-      runWorker(models, cfg, n, seed, parts[t], partStats[t]);
+      runLearningWorker(models, cfg, n, seed, parts[t], partStats[t]);
     });
   }
   for (auto& w : workers) w.join();
@@ -151,6 +208,46 @@ void collectRollout(const ModelSet& models, const RolloutConfig& cfg,
     stats.meanScore = double(stats.totalScore) / stats.games;
     stats.meanEpisodeLen = double(stats.transitions) / stats.games;
   }
+
+  // Extra league-eval games (not learning buffer).
+  int leagueN = 0;
+  if (cfg.historicalPool && !cfg.historicalPool->empty() &&
+      cfg.historicalProb > 0.f) {
+    leagueN = static_cast<int>(
+        std::lround(static_cast<double>(cfg.gamesPerUpdate) *
+                    static_cast<double>(cfg.historicalProb)));
+  }
+  if (leagueN > 0) {
+    int lPer = leagueN / threads;
+    int lRem = leagueN % threads;
+    std::vector<RolloutStats> leagueParts(threads);
+    std::vector<std::thread> leagueWorkers;
+    leagueWorkers.reserve(threads);
+    int loff = 0;
+    for (int t = 0; t < threads; ++t) {
+      int n = lPer + (t < lRem ? 1 : 0);
+      uint64_t seed = cfg.seed + 0xC0FFEEULL +
+                      static_cast<uint64_t>(loff) * 7919ULL +
+                      static_cast<uint64_t>(t) * 0x85ebca6bULL;
+      loff += n;
+      leagueWorkers.emplace_back([&, t, n, seed]() {
+        runLeagueWorker(cfg, n, seed, leagueParts[t]);
+      });
+    }
+    for (auto& w : leagueWorkers) w.join();
+    for (int t = 0; t < threads; ++t) {
+      stats.leagueGames += leagueParts[t].leagueGames;
+      stats.leagueTotalLines += leagueParts[t].leagueTotalLines;
+      stats.leagueTotalScore += leagueParts[t].leagueTotalScore;
+    }
+    if (stats.leagueGames > 0) {
+      stats.leagueMeanLines =
+          double(stats.leagueTotalLines) / stats.leagueGames;
+      stats.leagueMeanScore =
+          double(stats.leagueTotalScore) / stats.leagueGames;
+    }
+  }
+
 }
 
 }  // namespace algo
