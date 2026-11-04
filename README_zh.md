@@ -1,7 +1,8 @@
 # tetris_ai
 
+[![CI](https://github.com/esrrhs/tetris_ai/actions/workflows/ci.yml/badge.svg)](https://github.com/esrrhs/tetris_ai/actions/workflows/ci.yml)
 [![Language](https://img.shields.io/badge/language-C%2B%2B20-blue.svg)](https://en.wikipedia.org/wiki/C%2B%2B20)
-[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey.svg)](https://github.com/esrrhs/tetris_ai)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/esrrhs/tetris_ai)
 
 [**English**](README.md) | [**中文说明**](README_zh.md)
 

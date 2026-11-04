@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu Linux (GCC)
+            os: ubuntu-latest
+          - name: macOS (AppleClang / CPU)
+            os: macos-latest
+          - name: Windows (MSVC / CPU)
+            os: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install PyTorch (LibTorch)
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == "Linux" || "${{ runner.os }}" == "Windows" ]]; then
+            pip install torch --index-url https://download.pytorch.org/whl/cpu
+          else
+            pip install torch
+          fi
+          TORCH_DIR=$(python -c "import torch; print(torch.utils.cmake_prefix_path)")
+          echo "CMAKE_PREFIX_PATH=$TORCH_DIR" >> $GITHUB_ENV
+          echo "Torch cmake path: $TORCH_DIR"
+
+          TORCH_LIB=$(python -c "import os, torch; print(os.path.join(os.path.dirname(torch.__file__), 'lib'))")
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            echo "$TORCH_LIB" >> $GITHUB_PATH
+          elif [[ "${{ runner.os }}" == "Linux" ]]; then
+            echo "LD_LIBRARY_PATH=$TORCH_LIB:${LD_LIBRARY_PATH:-}" >> $GITHUB_ENV
+          elif [[ "${{ runner.os }}" == "macOS" ]]; then
+            echo "DYLD_LIBRARY_PATH=$TORCH_LIB:${DYLD_LIBRARY_PATH:-}" >> $GITHUB_ENV
+          fi
+
+      - name: Configure CMake
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release -j
+
+      - name: Run Tests
+        run: ctest --test-dir build -C Release --output-on-failure --timeout 300
+
+      - name: Train smoke
+        shell: bash
+        run: |
+          TRAIN_BIN="./build/tetris_ai_train"
+          if [ -f "./build/Release/tetris_ai_train.exe" ]; then
+            TRAIN_BIN="./build/Release/tetris_ai_train.exe"
+          elif [ -f "./build/Release/tetris_ai_train" ]; then
+            TRAIN_BIN="./build/Release/tetris_ai_train"
+          fi
+          $TRAIN_BIN --updates 2 --games 8 --threads 2 --pool-every 1 \
+            --dense-reward --out build/ci_ckpt --backend cpu
+
+      - name: Eval smoke
+        shell: bash
+        run: |
+          EVAL_BIN="./build/tetris_ai_eval"
+          if [ -f "./build/Release/tetris_ai_eval.exe" ]; then
+            EVAL_BIN="./build/Release/tetris_ai_eval.exe"
+          elif [ -f "./build/Release/tetris_ai_eval" ]; then
+            EVAL_BIN="./build/Release/tetris_ai_eval"
+          fi
+          $EVAL_BIN --ckpt build/ci_ckpt --max-pieces 20 --games 2 --seed 1 --backend cpu
