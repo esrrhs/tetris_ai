@@ -5,14 +5,14 @@
 
 [**English**](README.md) | [**中文说明**](README_zh.md)
 
-俄罗斯方块 **强化学习** 环境：按 `Step` 推进的可玩客户端核心 + PerfectDouCPP 风格的单智能体 PPO 训练脚手架。**C++ 为核心**，布局对齐 [PerfectDouCPP](https://github.com/esrrhs/PerfectDouCPP)。`game/` 下的 Go 包作为次要参考保留。
+俄罗斯方块 **强化学习** 环境：按 `Step` 推进的可玩客户端核心 + PerfectDouCPP 风格的单智能体 PPO 训练脚手架。**C++ 为唯一核心**，布局对齐 [PerfectDouCPP](https://github.com/esrrhs/PerfectDouCPP)。
 
 仓库对应专属开发 Bot：`tetris_ai`。
 
 ## Step 语义
 
 1. 游戏时间 **只** 在调用 `Step(ops...)` 时前进。
-2. 方块生成使用 **7-bag**（每 7 个为一袋，袋内各出现一次，打乱后依次取出）。C++ 使用与 Go `math/rand` 兼容的 PRNG，**同一 seed 方块序列一致**。
+2. 方块生成使用 **7-bag**（每 7 个为一袋，袋内各出现一次，打乱后依次取出）。使用确定性种子 PRNG，**同一 seed 方块序列一致**。
 3. **无** 活动方块时：本次 `Step` 先在顶部 **生成** 下一个方块；若生成位置与已锁定格子重叠 → `Done=true`（游戏结束）。否则：对新生方块应用 `ops`，再尝试 **下落 1 行**。
 4. **有** 活动方块时：按顺序应用任意多个 `ops`，然后重力下落 **恰好 1 行**（若本次 ops 含 `HardDrop`，则一插到底并锁定，跳过普通重力）。
 5. 操作只在 `Step` 内生效；非法移动（撞墙/重叠）**忽略**，不报错。
@@ -30,12 +30,12 @@
   - 本锁得分增量 = `LineScore(cleared) + ComboBonus(prev_combo)`。
 - RL `Env` 的消行奖励跟上述得分增量对齐（鼓励「刀口舔血」堆连消 / 多消）：`lineCoef * (score_gain / 40)`，使单消 ≈ `lineCoef * 1.0`；dense shaping 与 `deathPenalty` 仍叠加上去。
 
-## C++ API（主）
+## C++ API
 
 ```cpp
 #include "tetris/game.h"
 
-tetris::Game g(seed);  // 7-bag RNG seeded (Go-compatible)
+tetris::Game g(seed);  // 7-bag RNG seeded
 tetris::Result r = g.Step({tetris::Op::Left, tetris::Op::RotateCW});
 // r.obs     Observation (board + active piece)
 // r.reward  double      lines cleared this step (raw Game API)
@@ -183,24 +183,6 @@ tetris_ai/
   src/eval.cpp    # external eval entry
   src/demo/       # ASCII demo
   tests/          # gtest
-  game/           # Go reference (kept)
-  cmd/demo/       # Go demo (kept)
-  go.mod
-```
-
-## Go API（次）
-
-```go
-import "github.com/esrrhs/tetris_ai/game"
-
-g := game.NewGame(seed)
-r := g.Step(game.OpLeft, game.OpRotateCW)
-fmt.Print(g)
-```
-
-```bash
-go test ./...
-go run ./cmd/demo
 ```
 
 ## 设计说明

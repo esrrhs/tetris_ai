@@ -5,14 +5,14 @@
 
 [**English**](README.md) | [**中文说明**](README_zh.md)
 
-Tetris **reinforcement-learning** play client and PPO scaffold. The clock advances only via `Step`. **C++ is the canonical core**, styled like [PerfectDouCPP](https://github.com/esrrhs/PerfectDouCPP). The Go package under `game/` remains as a secondary reference.
+Tetris **reinforcement-learning** play client and PPO scaffold. The clock advances only via `Step`. **C++ is the sole core**, styled like [PerfectDouCPP](https://github.com/esrrhs/PerfectDouCPP).
 
 Dedicated repo bot: `tetris_ai`.
 
 ## Step semantics
 
 1. Game time advances **only** when `Step(ops...)` is called.
-2. Piece generation uses a **7-bag** (each bag holds one of each of the 7 pieces, shuffled, then drawn in order). C++ uses a Go `math/rand`-compatible PRNG, so the **same seed yields the same piece sequence**.
+2. Piece generation uses a **7-bag** (each bag holds one of each of the 7 pieces, shuffled, then drawn in order). A deterministic seeded PRNG is used, so the **same seed yields the same piece sequence**.
 3. When there is **no** active piece: this `Step` first **spawns** the next piece at the top; if the spawn overlaps locked cells → `Done=true` (game over). Otherwise: apply `ops` to the new piece, then try to **drop 1 row**.
 4. When there **is** an active piece: apply any number of `ops` in order, then gravity drops **exactly 1 row** (if the ops include `HardDrop`, the piece locks at the bottom and normal gravity is skipped).
 5. Ops only take effect inside `Step`; illegal moves (wall / overlap) are **ignored**, not errors.
@@ -30,12 +30,12 @@ Allowed ops: `Left` / `Right` / `RotateCW` / `RotateCCW` / (optional) `HardDrop`
   - Score gain on this lock = `LineScore(cleared) + ComboBonus(prev_combo)`.
 - RL `Env` clear reward aligns with that score gain (encourages combo / multi-line clears): `lineCoef * (score_gain / 40)`, so a single clear ≈ `lineCoef * 1.0`; dense shaping and `deathPenalty` still stack on top.
 
-## C++ API (primary)
+## C++ API
 
 ```cpp
 #include "tetris/game.h"
 
-tetris::Game g(seed);  // 7-bag RNG seeded (Go-compatible)
+tetris::Game g(seed);  // 7-bag RNG seeded
 tetris::Result r = g.Step({tetris::Op::Left, tetris::Op::RotateCW});
 // r.obs     Observation (board + active piece)
 // r.reward  double      lines cleared this step (raw Game API)
@@ -183,24 +183,6 @@ tetris_ai/
   src/eval.cpp    # external eval entry
   src/demo/       # ASCII demo
   tests/          # gtest
-  game/           # Go reference (kept)
-  cmd/demo/       # Go demo (kept)
-  go.mod
-```
-
-## Go API (secondary)
-
-```go
-import "github.com/esrrhs/tetris_ai/game"
-
-g := game.NewGame(seed)
-r := g.Step(game.OpLeft, game.OpRotateCW)
-fmt.Print(g)
-```
-
-```bash
-go test ./...
-go run ./cmd/demo
 ```
 
 ## Notes
