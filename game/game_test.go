@@ -219,3 +219,54 @@ func TestManyStepsNoPanic(t *testing.T) {
 		}
 	}
 }
+
+func TestLineScoreAndComboBonus(t *testing.T) {
+	if lineScore(0) != 0 || lineScore(1) != 40 || lineScore(2) != 100 || lineScore(3) != 300 || lineScore(4) != 1200 {
+		t.Fatalf("unexpected lineScore table")
+	}
+	if comboBonus(0) != 0 || comboBonus(1) != 40 || comboBonus(2) != 80 {
+		t.Fatalf("unexpected comboBonus")
+	}
+}
+
+func prepSingleClearGap(g *Game) {
+	for y := BoardHeight - 4; y < BoardHeight; y++ {
+		for x := 0; x < BoardWidth; x++ {
+			g.board.Cells[y][x] = 0
+		}
+	}
+	for x := 0; x < BoardWidth; x++ {
+		if x == 4 || x == 5 {
+			continue
+		}
+		g.board.Cells[BoardHeight-1][x] = 1
+	}
+}
+
+func TestComboScoreAndReset(t *testing.T) {
+	g := NewGame(1)
+	prepSingleClearGap(g)
+	g.piece = &ActivePiece{Type: PieceO, Rot: 0, X: 4, Y: BoardHeight - 3}
+	r1 := g.Step(OpHardDrop)
+	if r1.Info.LinesCleared != 1 || r1.Info.ScoreGain != 40 || r1.Info.Combo != 1 || g.Score() != 40 {
+		t.Fatalf("first clear: got lines=%d gain=%d combo=%d score=%d", r1.Info.LinesCleared, r1.Info.ScoreGain, r1.Info.Combo, g.Score())
+	}
+
+	prepSingleClearGap(g)
+	g.piece = &ActivePiece{Type: PieceO, Rot: 0, X: 4, Y: BoardHeight - 3}
+	r2 := g.Step(OpHardDrop)
+	if r2.Info.LinesCleared != 1 || r2.Info.ScoreGain != 80 || r2.Info.Combo != 2 || g.Score() != 120 {
+		t.Fatalf("combo clear: got lines=%d gain=%d combo=%d score=%d", r2.Info.LinesCleared, r2.Info.ScoreGain, r2.Info.Combo, g.Score())
+	}
+
+	for y := BoardHeight - 4; y < BoardHeight; y++ {
+		for x := 0; x < BoardWidth; x++ {
+			g.board.Cells[y][x] = 0
+		}
+	}
+	g.piece = &ActivePiece{Type: PieceO, Rot: 0, X: 0, Y: BoardHeight - 3}
+	r3 := g.Step(OpHardDrop)
+	if r3.Info.LinesCleared != 0 || r3.Info.ScoreGain != 0 || r3.Info.Combo != 0 || g.Combo() != 0 {
+		t.Fatalf("reset: got lines=%d gain=%d combo=%d", r3.Info.LinesCleared, r3.Info.ScoreGain, r3.Info.Combo)
+	}
+}

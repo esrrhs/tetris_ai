@@ -21,6 +21,7 @@ type Game struct {
 	score  int
 	lines  int
 	pieces int
+	combo  int // consecutive clear-locks; 0 when streak broken
 	done   bool
 	seed   int64
 }
@@ -40,6 +41,8 @@ func (g *Game) Seed() int64 { return g.seed }
 func (g *Game) Score() int         { return g.score }
 func (g *Game) Lines() int         { return g.lines }
 func (g *Game) PiecesPlaced() int  { return g.pieces }
+// Combo is consecutive clear-locks including the latest clear (0 if last lock cleared 0).
+func (g *Game) Combo() int         { return g.combo }
 func (g *Game) Done() bool         { return g.done }
 func (g *Game) HasActivePiece() bool { return g.piece != nil }
 
@@ -71,6 +74,7 @@ func (g *Game) Step(ops ...Op) Result {
 	locked := false
 	hardDropped := false
 	linesCleared := 0
+	scoreGain := 0
 
 	// --- spawn if needed ---
 	if g.piece == nil {
@@ -114,11 +118,15 @@ func (g *Game) Step(ops ...Op) Result {
 	// --- gravity or lock after hard drop ---
 	if g.piece != nil {
 		if hardDropped {
+			before := g.score
 			linesCleared = g.lockPiece()
+			scoreGain = g.score - before
 			locked = true
 		} else {
 			if !g.tryMove(0, 1) {
+				before := g.score
 				linesCleared = g.lockPiece()
+				scoreGain = g.score - before
 				locked = true
 			}
 		}
@@ -130,6 +138,8 @@ func (g *Game) Step(ops ...Op) Result {
 	res.Info = Info{
 		LinesCleared: linesCleared,
 		Score:        g.score,
+		ScoreGain:    scoreGain,
+		Combo:        g.combo,
 		Locked:       locked,
 		Spawned:      spawned,
 		HardDropped:  hardDropped,
@@ -181,7 +191,13 @@ func (g *Game) lockPiece() int {
 	g.pieces++
 	cleared := g.board.ClearLines()
 	g.lines += cleared
-	g.score += lineScore(cleared)
+	if cleared > 0 {
+		// g.combo is previous streak length (0 = first clear → no combo bonus).
+		g.score += lineScore(cleared) + comboBonus(g.combo)
+		g.combo++
+	} else {
+		g.combo = 0
+	}
 	g.piece = nil
 	return cleared
 }

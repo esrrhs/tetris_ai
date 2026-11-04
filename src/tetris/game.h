@@ -34,6 +34,8 @@ class Game {
   int Score() const { return score_; }
   int Lines() const { return lines_; }
   int PiecesPlaced() const { return pieces_; }
+  // Consecutive clear-locks including the latest clear (0 if last lock cleared 0).
+  int Combo() const { return combo_; }
   bool Done() const { return done_; }
   bool HasActivePiece() const { return piece_.has_value(); }
 
@@ -85,6 +87,7 @@ class Game {
   int score_ = 0;
   int lines_ = 0;
   int pieces_ = 0;
+  int combo_ = 0;  // consecutive clear-locks; 0 when streak broken
   bool done_ = false;
   int64_t seed_ = 0;
 };

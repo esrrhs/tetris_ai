@@ -67,4 +67,9 @@ int LineScore(int n) {
   }
 }
 
+int ComboBonus(int combo_index) {
+  if (combo_index <= 0) return 0;
+  return 40 * combo_index;
+}
+
 }  // namespace tetris

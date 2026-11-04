@@ -68,7 +68,9 @@ TEST(Env, LineReward) {
   opt.id = 0;
   auto r = env.Step(opt);
   EXPECT_EQ(r.lines_cleared, 2);
-  EXPECT_DOUBLE_EQ(r.reward, 2.0);
+  EXPECT_EQ(r.score_gain, 100);  // LineScore(2), first clear
+  // lineCoef * score_gain / 40 = 100/40 = 2.5
+  EXPECT_DOUBLE_EQ(r.reward, 2.5);
   if (!r.done) {
     EXPECT_TRUE(env.game().HasActivePiece());
   }
@@ -106,7 +108,7 @@ TEST(Env, DenseRewardHolesWorseThanLineClear) {
   float phiClearBefore = BoardPotential(beforeClear, cfg);
   float phiClearAfter = BoardPotential(afterClear, cfg);
   double expectedClear =
-      cfg.lineCoef * rClear.lines_cleared +
+      cfg.lineCoef * (rClear.score_gain / 40.0) +
       cfg.denseCoef * (phiClearBefore - phiClearAfter);
   EXPECT_NEAR(rClear.reward, expectedClear, 1e-4);
 
@@ -132,7 +134,7 @@ TEST(Env, DenseRewardHolesWorseThanLineClear) {
 
   float phiHoleBefore = BoardPotential(beforeHole, cfg);
   float phiHoleAfter = BoardPotential(afterHole, cfg);
-  double expectedHole = cfg.lineCoef * rHole.lines_cleared +
+  double expectedHole = cfg.lineCoef * (rHole.score_gain / 40.0) +
                         cfg.denseCoef * (phiHoleBefore - phiHoleAfter);
   EXPECT_NEAR(rHole.reward, expectedHole, 1e-4);
 
@@ -183,4 +185,51 @@ TEST(Env, SpawnDeathPiecesPlacedConvention) {
   const int death_piece = k + 1;  // convention used by tetris_ai_eval
   EXPECT_EQ(death_piece, k + 1);
   EXPECT_GT(death_piece, k);
+}
+
+TEST(Env, ComboStreakBeatsIsolatedSingles) {
+  // Two consecutive single clears (combo) should reward more than one isolated
+  // single of the same line count, encouraging "刀口舔血" stacking.
+  EnvRewardConfig cfg;
+  cfg.denseReward = false;
+  cfg.deathPenalty = 0.f;
+  cfg.lineCoef = 1.f;
+
+  auto prep_gap = [](Game& g) {
+    for (int y = kBoardHeight - 4; y < kBoardHeight; ++y) {
+      for (int x = 0; x < kBoardWidth; ++x) {
+        g.mutable_board().cells[static_cast<size_t>(y)][static_cast<size_t>(x)] = 0;
+      }
+    }
+    for (int x = 0; x < kBoardWidth; ++x) {
+      if (x == 4 || x == 5) continue;
+      g.mutable_board().cells[kBoardHeight - 1][static_cast<size_t>(x)] = 1;
+    }
+  };
+
+  Env env(cfg);
+  env.Reset(1);
+  Game& g = env.mutable_game();
+
+  prep_gap(g);
+  g.ForcePiece(PieceType::O, 0, 4, kBoardHeight - 3);
+  LegalOption opt;
+  opt.ops = {Op::HardDrop};
+  opt.id = 0;
+  auto r1 = env.Step(opt);
+  EXPECT_EQ(r1.lines_cleared, 1);
+  EXPECT_DOUBLE_EQ(r1.reward, 1.0);  // 40/40
+
+  prep_gap(g);
+  g.ForcePiece(PieceType::O, 0, 4, kBoardHeight - 3);
+  auto r2 = env.Step(opt);
+  EXPECT_EQ(r2.lines_cleared, 1);
+  EXPECT_EQ(r2.score_gain, 80);       // 40 + ComboBonus(1)
+  EXPECT_EQ(r2.combo, 2);
+  EXPECT_DOUBLE_EQ(r2.reward, 2.0);   // 80/40
+
+  // Combo follow-up single > isolated single of 1 line.
+  EXPECT_GT(r2.reward, r1.reward);
+  // Two-line clear in one lock (100) still beats a lone single (40).
+  EXPECT_GT(100.0 / 40.0, r1.reward);
 }

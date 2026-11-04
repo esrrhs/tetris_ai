@@ -85,3 +85,12 @@ func lineScore(n int) int {
 		return 0
 	}
 }
+
+// comboBonus for consecutive clear-locks. comboIndex 0 = first clear (no bonus),
+// 1 = first follow-up (+40), 2 → +80, etc. Mirrors C++ ComboBonus.
+func comboBonus(comboIndex int) int {
+	if comboIndex <= 0 {
+		return 0
+	}
+	return 40 * comboIndex
+}

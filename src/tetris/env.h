@@ -7,10 +7,12 @@
 //     done, auto Step({}) to spawn the next piece so the agent always observes
 //     a state with an active piece (or Done).
 //
-// Base reward = lineCoef * lines_cleared on the agent decision (lock step).
+// Clear reward tracks Game score gain (LineScore + ComboBonus), scaled so a
+// single-line clear ≈ lineCoef * 1.0:
+//   clear_reward = lineCoef * (score_gain / 40.0)
 // Optional potential-based dense shaping (Ng et al.):
 //   φ = wH * aggregate_height + wHole * holes + wBump * bumpiness
-//   reward = lineCoef * lines + denseCoef * (φ_before - φ_after)
+//   reward = clear_reward + denseCoef * (φ_before - φ_after)
 //   + deathPenalty if the step ends the game.
 // This is Tetris board-metric shaping, not DouZero card-oracle reward.
 #pragma once
@@ -47,6 +49,8 @@ struct EnvStepResult {
   double reward = 0;
   bool done = false;
   int lines_cleared = 0;
+  int score_gain = 0;
+  int combo = 0;
   int score = 0;
   int pieces_placed = 0;
 };
@@ -79,10 +83,11 @@ class Env {
   bool Done() const { return game_.Done(); }
 
  private:
-  EnvStepResult MakeResult(double reward, int lines_cleared) const;
+  EnvStepResult MakeResult(double reward, int lines_cleared, int score_gain,
+                           int combo) const;
   void EnsureActivePiece();
   double ShapeReward(const BoardMetrics& before, const BoardMetrics& after,
-                     int lines_cleared, bool done) const;
+                     int score_gain, bool done) const;
 
   Game game_;
   EnvRewardConfig reward_{};

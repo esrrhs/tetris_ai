@@ -9,21 +9,25 @@ void Env::EnsureActivePiece() {
   }
 }
 
-EnvStepResult Env::MakeResult(double reward, int lines_cleared) const {
+EnvStepResult Env::MakeResult(double reward, int lines_cleared, int score_gain,
+                              int combo) const {
   EnvStepResult r;
   EncodeState(game_, r.state, /*include_bag=*/false);
   r.reward = reward;
   r.done = game_.Done();
   r.lines_cleared = lines_cleared;
+  r.score_gain = score_gain;
+  r.combo = combo;
   r.score = game_.Score();
   r.pieces_placed = game_.PiecesPlaced();
   return r;
 }
 
 double Env::ShapeReward(const BoardMetrics& before, const BoardMetrics& after,
-                        int lines_cleared, bool done) const {
+                        int score_gain, bool done) const {
+  // Scale by /40 so a single clear (40 pts, no combo) ≈ lineCoef * 1.0.
   double reward = static_cast<double>(reward_.lineCoef) *
-                  static_cast<double>(lines_cleared);
+                  (static_cast<double>(score_gain) / 40.0);
   if (reward_.denseReward) {
     float phiBefore = BoardPotential(before, reward_);
     float phiAfter = BoardPotential(after, reward_);
@@ -39,7 +43,7 @@ double Env::ShapeReward(const BoardMetrics& before, const BoardMetrics& after,
 EnvStepResult Env::Reset(int64_t seed) {
   game_ = Game(seed);
   EnsureActivePiece();
-  return MakeResult(0.0, 0);
+  return MakeResult(0.0, 0, 0, 0);
 }
 
 void Env::EncodeActorState(std::array<float, kStateSize>& out) const {
@@ -60,17 +64,19 @@ std::vector<LegalOption> Env::LegalOptions() const {
 
 EnvStepResult Env::Step(const LegalOption& opt) {
   if (game_.Done()) {
-    return MakeResult(0.0, 0);
+    return MakeResult(0.0, 0, 0, 0);
   }
   if (!game_.HasActivePiece()) {
     EnsureActivePiece();
-    if (game_.Done()) return MakeResult(0.0, 0);
+    if (game_.Done()) return MakeResult(0.0, 0, 0, 0);
   }
 
   BoardMetrics before = ComputeBoardMetrics(game_.board());
 
   Result lock = game_.Step(opt.ops);
   int lines = lock.info.lines_cleared;
+  int score_gain = lock.info.score_gain;
+  int combo = lock.info.combo;
 
   // Auto-spawn so the agent always sees an active piece (or Done).
   if (!game_.Done() && !game_.HasActivePiece()) {
@@ -80,8 +86,8 @@ EnvStepResult Env::Step(const LegalOption& opt) {
 
   BoardMetrics after = ComputeBoardMetrics(game_.board());
   bool done = game_.Done();
-  double reward = ShapeReward(before, after, lines, done);
-  return MakeResult(reward, lines);
+  double reward = ShapeReward(before, after, score_gain, done);
+  return MakeResult(reward, lines, score_gain, combo);
 }
 
 EnvStepResult Env::Step(int placement_id) {
@@ -95,8 +101,9 @@ EnvStepResult Env::Step(int placement_id) {
     if (!game_.Done() && !game_.HasActivePiece()) game_.Step();
     BoardMetrics after = ComputeBoardMetrics(game_.board());
     bool done = game_.Done();
-    double reward = ShapeReward(before, after, r.info.lines_cleared, done);
-    return MakeResult(reward, r.info.lines_cleared);
+    double reward = ShapeReward(before, after, r.info.score_gain, done);
+    return MakeResult(reward, r.info.lines_cleared, r.info.score_gain,
+                      r.info.combo);
   }
   return Step(opts[static_cast<size_t>(placement_id)]);
 }

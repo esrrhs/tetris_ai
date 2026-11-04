@@ -33,6 +33,7 @@ Result Game::Step(std::span<const Op> ops) {
   bool locked = false;
   bool hard_dropped = false;
   int lines_cleared = 0;
+  int score_gain = 0;
 
   // --- spawn if needed ---
   if (!piece_) {
@@ -79,22 +80,29 @@ Result Game::Step(std::span<const Op> ops) {
   // --- gravity or lock after hard drop ---
   if (piece_) {
     if (hard_dropped) {
+      int score_before = score_;
       lines_cleared = LockPiece();
+      score_gain = score_ - score_before;
       locked = true;
     } else {
       if (!TryMove(0, 1)) {
+        int score_before = score_;
         lines_cleared = LockPiece();
+        score_gain = score_ - score_before;
         locked = true;
       }
     }
   }
 
+  // Raw Game API reward stays lines-cleared; Env RL reward uses score_gain.
   res.reward = static_cast<double>(lines_cleared);
   res.done = done_;
   res.obs = Observe();
   res.info = Info{
       .lines_cleared = lines_cleared,
       .score = score_,
+      .score_gain = score_gain,
+      .combo = combo_,
       .has_piece = piece_.has_value(),
       .locked = locked,
       .spawned = spawned,
@@ -137,7 +145,13 @@ int Game::LockPiece() {
   ++pieces_;
   int cleared = board_.ClearLines();
   lines_ += cleared;
-  score_ += LineScore(cleared);
+  if (cleared > 0) {
+    // combo_ is previous streak length (0 = first clear → no combo bonus).
+    score_ += LineScore(cleared) + ComboBonus(combo_);
+    combo_ += 1;
+  } else {
+    combo_ = 0;
+  }
   piece_.reset();
   return cleared;
 }

@@ -82,7 +82,9 @@ struct Observation {
 // Step metadata for logging / RL wrappers.
 struct Info {
   int lines_cleared = 0;
-  int score = 0;  // cumulative
+  int score = 0;       // cumulative
+  int score_gain = 0;  // LineScore + ComboBonus applied this lock (0 if none)
+  int combo = 0;       // consecutive clear-locks after this step (0 if no clear)
   PieceType piece_id = PieceType::I;
   bool has_piece = false;
   bool locked = false;
@@ -93,7 +95,7 @@ struct Info {
 // Returned by every Step call.
 struct Result {
   Observation obs;
-  double reward = 0;  // lines cleared this step (0 if none)
+  double reward = 0;  // lines cleared this step (raw Game API; Env uses score-based RL reward)
   bool done = false;  // true when spawn collides (game over)
   Info info;
 };

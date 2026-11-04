@@ -41,7 +41,7 @@ func (g *Game) Render(paintActive bool) string {
 		b.WriteString("|\n")
 	}
 	b.WriteString("+" + strings.Repeat("-", BoardWidth) + "+\n")
-	status := fmt.Sprintf("score=%d lines=%d pieces=%d", g.score, g.lines, g.pieces)
+	status := fmt.Sprintf("score=%d lines=%d pieces=%d combo=%d", g.score, g.lines, g.pieces, g.combo)
 	if g.piece != nil {
 		status += fmt.Sprintf(" active=%s rot=%d @(%d,%d)", g.piece.Type, g.piece.Rot, g.piece.X, g.piece.Y)
 	} else {

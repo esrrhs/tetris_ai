@@ -20,5 +20,8 @@ struct Board {
 };
 
 int LineScore(int n);
+// Combo bonus for consecutive clear-locks. combo_index is 0 on the first clear
+// in a streak (no bonus), 1 on the first follow-up (+40), 2 → +80, etc.
+int ComboBonus(int combo_index);
 
 }  // namespace tetris

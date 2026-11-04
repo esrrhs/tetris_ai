@@ -21,7 +21,11 @@ Tetris **reinforcement-learning** play client and PPO scaffold. The clock advanc
 
 - 标准 **10×20** 可见盘面，**无** 隐藏行（Y=0 为顶，向下增大）。
 - 七种方块 I,L,J,T,O,S,Z；固定 4 态形状表 + **基础墙踢**（试偏移 `(0,0), (±1,0), (0,-1), (±2,0)`），非完整 SRS。
-- 奖励 `Reward` = 本步消除行数；另有累计 `Score`（1/2/3/4 行 → 40/100/300/1200）。
+- 底层 `Game::Step` 的 `Reward` = 本步消除行数（原始 API）；累计 **`Score`** 与真实计分一致：
+  - 消行基础分 `LineScore`：1/2/3/4 行 → **40 / 100 / 300 / 1200**
+  - **连消加成** `ComboBonus`：连续「有消行的锁定」计 streak。第 1 次消行 combo index=0（无加成）；之后每次连续消行 index=1,2,…，加成 **40 × index**（即 +40, +80, …）。无消行的锁定将 combo 清零。
+  - 本锁得分增量 = `LineScore(cleared) + ComboBonus(prev_combo)`。
+- RL `Env` 的消行奖励跟上述得分增量对齐（鼓励「刀口舔血」堆连消 / 多消）：`lineCoef * (score_gain / 40)`，使单消 ≈ `lineCoef * 1.0`；dense shaping 与 `deathPenalty` 仍叠加上去。
 
 ## C++ API（主） / C++ API (primary)
 
@@ -31,9 +35,9 @@ Tetris **reinforcement-learning** play client and PPO scaffold. The clock advanc
 tetris::Game g(seed);  // 7-bag RNG seeded (Go-compatible)
 tetris::Result r = g.Step({tetris::Op::Left, tetris::Op::RotateCW});
 // r.obs     Observation (board + active piece)
-// r.reward  double      lines cleared this step
+// r.reward  double      lines cleared this step (raw Game API)
 // r.done    bool        game over
-// r.info    locked / spawned / lines_cleared / score / ...
+// r.info    locked / spawned / lines_cleared / score / score_gain / combo / ...
 
 auto obs = g.Observe();
 std::cout << g.Render(true);  // ASCII
@@ -63,7 +67,7 @@ Agent 每步在当前活动方块上选择一个 **最终落点** `(rot, x)`：�
 `Env`（`src/tetris/env.*`）：
 
 - `Reset(seed)`：`Step({})` 直到有活动方块，返回 observation。
-- `Step(placement_id | LegalOption)`：应用 ops+HardDrop；锁定后若未结束，自动 `Step({})` **重生下一块**，保证 agent 始终看到带活动方块的状态（或 Done）。Reward = `lineCoef * lines` + optional potential dense shaping（见下）。
+- `Step(placement_id | LegalOption)`：应用 ops+HardDrop；锁定后若未结束，自动 `Step({})` **重生下一块**，保证 agent 始终看到带活动方块的状态（或 Done）。Reward = `lineCoef * (score_gain/40)` + optional potential dense shaping（见下）。
 - `LegalOptions()`：当前状态合法落点。
 
 ### Feature dims
@@ -89,9 +93,12 @@ Tetris analogue of PerfectDou’s oracle shaping — **potential-based shaping o
 
 ```
 φ = wH * aggregate_height + wHole * holes + wBump * bumpiness
-reward = lineCoef * lines_cleared + denseCoef * (φ_before - φ_after)
+score_gain = LineScore(lines) + ComboBonus(combo_index)   # same as Game score
+reward = lineCoef * (score_gain / 40.0) + denseCoef * (φ_before - φ_after)
        + (done ? deathPenalty : 0)
 ```
+
+Examples (`lineCoef=1`, no dense): single=1.0, double=2.5, triple=7.5, tetris=30.0; combo follow-up single=2.0 (40+40)/40.
 
 Defaults: `wH=1`, `wHole=1`, `wBump=0.5`, `lineCoef=1`, `denseCoef=0.01`, `deathPenalty=-1`, `denseReward=true`.
 

@@ -184,3 +184,84 @@ TEST(Board, LineScore) {
   EXPECT_EQ(LineScore(3), 300);
   EXPECT_EQ(LineScore(4), 1200);
 }
+
+TEST(Board, ComboBonus) {
+  EXPECT_EQ(ComboBonus(0), 0);
+  EXPECT_EQ(ComboBonus(-1), 0);
+  EXPECT_EQ(ComboBonus(1), 40);
+  EXPECT_EQ(ComboBonus(2), 80);
+  EXPECT_EQ(ComboBonus(3), 120);
+}
+
+// Zero a few bottom rows, then fill all but x=4,5 so an O clears one line.
+static void PrepSingleClearGap(Game& g) {
+  for (int y = kBoardHeight - 4; y < kBoardHeight; ++y) {
+    for (int x = 0; x < kBoardWidth; ++x) {
+      g.mutable_board().cells[static_cast<size_t>(y)][static_cast<size_t>(x)] = 0;
+    }
+  }
+  for (int x = 0; x < kBoardWidth; ++x) {
+    if (x == 4 || x == 5) continue;
+    g.mutable_board().cells[kBoardHeight - 1][static_cast<size_t>(x)] = 1;
+  }
+}
+
+TEST(Game, ComboScoreAndReset) {
+  Game g(1);
+  // First clear: LineScore(1)=40, combo index 0 → no bonus; combo becomes 1.
+  PrepSingleClearGap(g);
+  g.ForcePiece(PieceType::O, 0, 4, kBoardHeight - 3);
+  Result r1 = g.Step(Op::HardDrop);
+  EXPECT_EQ(r1.info.lines_cleared, 1);
+  EXPECT_EQ(r1.info.score_gain, 40);
+  EXPECT_EQ(r1.info.combo, 1);
+  EXPECT_EQ(g.Combo(), 1);
+  EXPECT_EQ(g.Score(), 40);
+
+  // Second consecutive clear (no intermediate non-clear lock):
+  // +40 LineScore + ComboBonus(1)=40.
+  PrepSingleClearGap(g);
+  g.ForcePiece(PieceType::O, 0, 4, kBoardHeight - 3);
+  Result r2 = g.Step(Op::HardDrop);
+  EXPECT_EQ(r2.info.lines_cleared, 1);
+  EXPECT_EQ(r2.info.score_gain, 80);  // 40 + 40
+  EXPECT_EQ(r2.info.combo, 2);
+  EXPECT_EQ(g.Score(), 120);
+
+  // Lock with 0 lines → combo resets.
+  for (int y = kBoardHeight - 4; y < kBoardHeight; ++y) {
+    for (int x = 0; x < kBoardWidth; ++x) {
+      g.mutable_board().cells[static_cast<size_t>(y)][static_cast<size_t>(x)] = 0;
+    }
+  }
+  g.ForcePiece(PieceType::O, 0, 0, kBoardHeight - 3);
+  Result r3 = g.Step(Op::HardDrop);
+  EXPECT_EQ(r3.info.lines_cleared, 0);
+  EXPECT_EQ(r3.info.score_gain, 0);
+  EXPECT_EQ(r3.info.combo, 0);
+  EXPECT_EQ(g.Combo(), 0);
+  EXPECT_EQ(g.Score(), 120);
+
+  // New streak first clear again: no combo bonus.
+  PrepSingleClearGap(g);
+  g.ForcePiece(PieceType::O, 0, 4, kBoardHeight - 3);
+  Result r4 = g.Step(Op::HardDrop);
+  EXPECT_EQ(r4.info.lines_cleared, 1);
+  EXPECT_EQ(r4.info.score_gain, 40);
+  EXPECT_EQ(r4.info.combo, 1);
+  EXPECT_EQ(g.Score(), 160);
+}
+
+TEST(Game, DoubleClearScoresMoreThanSingle) {
+  Game g(1);
+  for (int x = 0; x < kBoardWidth; ++x) {
+    if (x == 4 || x == 5) continue;
+    g.mutable_board().cells[kBoardHeight - 1][static_cast<size_t>(x)] = 1;
+    g.mutable_board().cells[kBoardHeight - 2][static_cast<size_t>(x)] = 1;
+  }
+  g.ForcePiece(PieceType::O, 0, 4, kBoardHeight - 3);
+  Result r = g.Step(Op::HardDrop);
+  EXPECT_EQ(r.info.lines_cleared, 2);
+  EXPECT_EQ(r.info.score_gain, 100);  // LineScore(2), first clear no combo
+  EXPECT_EQ(g.Score(), 100);
+}

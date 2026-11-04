@@ -31,7 +31,7 @@ std::string Game::Render(bool paint_active) const {
     b << "|\n";
   }
   b << '+' << std::string(kBoardWidth, '-') << "+\n";
-  b << "score=" << score_ << " lines=" << lines_ << " pieces=" << pieces_;
+  b << "score=" << score_ << " lines=" << lines_ << " pieces=" << pieces_ << " combo=" << combo_;
   if (piece_) {
     b << " active=" << ::tetris::ToString(piece_->type) << " rot=" << piece_->rot << " @("
       << piece_->x << ',' << piece_->y << ')';

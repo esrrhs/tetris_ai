@@ -87,6 +87,8 @@ type Observation struct {
 type Info struct {
 	LinesCleared int
 	Score        int // cumulative
+	ScoreGain    int // LineScore + ComboBonus applied this lock (0 if none)
+	Combo        int // consecutive clear-locks after this step (0 if no clear)
 	PieceID      PieceType
 	HasPiece     bool
 	Locked       bool
