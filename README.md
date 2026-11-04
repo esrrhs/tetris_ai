@@ -1,33 +1,36 @@
 # tetris_ai
 
-俄罗斯方块 **强化学习** 环境：按 `Step` 推进的可玩客户端核心 + PerfectDouCPP 风格的单智能体 PPO 训练脚手架。**C++ 为核心**。
+[![Language](https://img.shields.io/badge/language-C%2B%2B20-blue.svg)](https://en.wikipedia.org/wiki/C%2B%2B20)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey.svg)](https://github.com/esrrhs/tetris_ai)
+
+[**English**](README.md) | [**中文说明**](README_zh.md)
 
 Tetris **reinforcement-learning** play client and PPO scaffold. The clock advances only via `Step`. **C++ is the canonical core**, styled like [PerfectDouCPP](https://github.com/esrrhs/PerfectDouCPP). The Go package under `game/` remains as a secondary reference.
 
-仓库对应专属开发 Bot：`tetris_ai`。
+Dedicated repo bot: `tetris_ai`.
 
-## Step 语义 / Step semantics
+## Step semantics
 
-1. 游戏时间 **只** 在调用 `Step(ops...)` 时前进。
-2. 方块生成使用 **7-bag**（每 7 个为一袋，袋内各出现一次，打乱后依次取出）。C++ 使用与 Go `math/rand` 兼容的 PRNG，**同一 seed 方块序列一致**。
-3. **无** 活动方块时：本次 `Step` 先在顶部 **生成** 下一个方块；若生成位置与已锁定格子重叠 → `Done=true`（游戏结束）。否则：对新生方块应用 `ops`，再尝试 **下落 1 行**。
-4. **有** 活动方块时：按顺序应用任意多个 `ops`，然后重力下落 **恰好 1 行**（若本次 ops 含 `HardDrop`，则一插到底并锁定，跳过普通重力）。
-5. 操作只在 `Step` 内生效；非法移动（撞墙/重叠）**忽略**，不报错。
-6. 方块无法再下落时 **锁定** 并消行；**下一次** `Step`（不是同一次）才生成下一个方块。
+1. Game time advances **only** when `Step(ops...)` is called.
+2. Piece generation uses a **7-bag** (each bag holds one of each of the 7 pieces, shuffled, then drawn in order). C++ uses a Go `math/rand`-compatible PRNG, so the **same seed yields the same piece sequence**.
+3. When there is **no** active piece: this `Step` first **spawns** the next piece at the top; if the spawn overlaps locked cells → `Done=true` (game over). Otherwise: apply `ops` to the new piece, then try to **drop 1 row**.
+4. When there **is** an active piece: apply any number of `ops` in order, then gravity drops **exactly 1 row** (if the ops include `HardDrop`, the piece locks at the bottom and normal gravity is skipped).
+5. Ops only take effect inside `Step`; illegal moves (wall / overlap) are **ignored**, not errors.
+6. When a piece can no longer fall it **locks** and lines clear; the **next** `Step` (not the same one) spawns the following piece.
 
-允许操作：`Left` / `Right` / `RotateCW` / `RotateCCW` /（可选）`HardDrop`。
+Allowed ops: `Left` / `Right` / `RotateCW` / `RotateCCW` / (optional) `HardDrop`.
 
-## 盘面与旋转 / Board & rotation
+## Board & rotation
 
-- 标准 **10×20** 可见盘面，**无** 隐藏行（Y=0 为顶，向下增大）。
-- 七种方块 I,L,J,T,O,S,Z；固定 4 态形状表 + **基础墙踢**（试偏移 `(0,0), (±1,0), (0,-1), (±2,0)`），非完整 SRS。
-- 底层 `Game::Step` 的 `Reward` = 本步消除行数（原始 API）；累计 **`Score`** 与真实计分一致：
-  - 消行基础分 `LineScore`：1/2/3/4 行 → **40 / 100 / 300 / 1200**
-  - **连消加成** `ComboBonus`：连续「有消行的锁定」计 streak。第 1 次消行 combo index=0（无加成）；之后每次连续消行 index=1,2,…，加成 **40 × index**（即 +40, +80, …）。无消行的锁定将 combo 清零。
-  - 本锁得分增量 = `LineScore(cleared) + ComboBonus(prev_combo)`。
-- RL `Env` 的消行奖励跟上述得分增量对齐（鼓励「刀口舔血」堆连消 / 多消）：`lineCoef * (score_gain / 40)`，使单消 ≈ `lineCoef * 1.0`；dense shaping 与 `deathPenalty` 仍叠加上去。
+- Standard **10×20** visible board, **no** hidden rows (Y=0 is the top, increasing downward).
+- Seven pieces I,L,J,T,O,S,Z; fixed 4-state shape tables + **basic wall kicks** (try offsets `(0,0), (±1,0), (0,-1), (±2,0)`), not full SRS.
+- Low-level `Game::Step` `Reward` = lines cleared this step (raw API). Accumulated **`Score`** matches classic scoring:
+  - Base line score `LineScore`: 1/2/3/4 lines → **40 / 100 / 300 / 1200**
+  - **Combo bonus** `ComboBonus`: consecutive locks that clear lines keep a streak. First clear has combo index=0 (no bonus); later consecutive clears use index=1,2,… with bonus **40 × index** (+40, +80, …). A lock with no clears resets the combo.
+  - Score gain on this lock = `LineScore(cleared) + ComboBonus(prev_combo)`.
+- RL `Env` clear reward aligns with that score gain (encourages combo / multi-line clears): `lineCoef * (score_gain / 40)`, so a single clear ≈ `lineCoef * 1.0`; dense shaping and `deathPenalty` still stack on top.
 
-## C++ API（主） / C++ API (primary)
+## C++ API (primary)
 
 ```cpp
 #include "tetris/game.h"
@@ -43,7 +46,7 @@ auto obs = g.Observe();
 std::cout << g.Render(true);  // ASCII
 ```
 
-### 构建核心与测试 / Build core & test（无需 LibTorch）
+### Build core & tests (no LibTorch required)
 
 ```bash
 export PATH="/home/box/.local/cmake/bin:$PATH"
@@ -56,19 +59,19 @@ ctest --test-dir build --output-on-failure
 
 CMake targets (always): static lib `tetris_ai_core`, demo `tetris_ai_demo`, gtests `test_game` + `test_rl_env`.
 
-## RL scaffold（PerfectDou 风格）
+## RL scaffold (PerfectDou-style)
 
-单智能体 self-play vs environment（v1 **无** 3-seat / league）。
+Single-agent self-play vs environment (v1: **no** 3-seat / multi-agent league).
 
 ### Action space — placement options
 
-Agent 每步在当前活动方块上选择一个 **最终落点** `(rot, x)`：旋转/平移后 `HardDrop`，在 **一次** `Game::Step(ops)` 内执行。`LegalOptions()` 枚举所有可到达且能硬降锁定的选项（O 去重）。
+Each agent step picks a **final placement** `(rot, x)` for the active piece: rotate/translate then `HardDrop`, executed inside **one** `Game::Step(ops)`. `LegalOptions()` enumerates all reachable options that can hard-drop and lock (O placements are deduplicated).
 
-`Env`（`src/tetris/env.*`）：
+`Env` (`src/tetris/env.*`):
 
-- `Reset(seed)`：`Step({})` 直到有活动方块，返回 observation。
-- `Step(placement_id | LegalOption)`：应用 ops+HardDrop；锁定后若未结束，自动 `Step({})` **重生下一块**，保证 agent 始终看到带活动方块的状态（或 Done）。Reward = `lineCoef * (score_gain/40)` + optional potential dense shaping（见下）。
-- `LegalOptions()`：当前状态合法落点。
+- `Reset(seed)`: `Step({})` until an active piece exists, then return the observation.
+- `Step(placement_id | LegalOption)`: apply ops+HardDrop; if not done after lock, automatically `Step({})` to **respawn the next piece**, so the agent always sees a state with an active piece (or Done). Reward = `lineCoef * (score_gain/40)` + optional potential dense shaping (below).
+- `LegalOptions()`: legal placements in the current state.
 
 ### Feature dims
 
@@ -77,15 +80,15 @@ Agent 每步在当前活动方块上选择一个 **最终落点** `(rot, x)`：�
 | `kStateSize` | **235** | board 20×10 binary (200) + piece one-hot(7) + rot one-hot(4) + x/y (2) + heights(10) + holes/bump/agg (3) + lines/score (2) + bag remaining counts(7) |
 | `kActionFeatSize` | **18** | post-lock heights(10) + holes/bump/agg (3) + lines cleared + landing y + Δholes/Δbump/Δagg (3) |
 
-- **Actor** 使用 imperfect state：bag 维全 0（不偷看 7-bag）。
-- **Critic** 可带 `Bag7::PeekRemaining()` 计数（当前袋剩余，袋末为空直至下次 `Next` refill）。
+- **Actor** uses imperfect state: bag dims are all 0 (no peeking into the 7-bag).
+- **Critic** may include `Bag7::PeekRemaining()` counts (remaining in the current bag; empty at bag end until the next `Next` refill).
 
 ### Models / Algo
 
-- `Actor`: `joint = concat(state, actionFeat)` → MLP → scalar logit；对合法 option 做 masked softmax（见 `algo/ppo.cpp`）。
-- `Critic`: state → MLP → value。
-- `PPOLearner::update`: clip、entropy、value loss、grad clip、可选 KL early stop。
-- `collectRollout`: 同步线程池收集 Env episode + GAE（`assignEpisodeReturns`）；可选 historical league eval games。
+- `Actor`: `joint = concat(state, actionFeat)` → MLP → scalar logit; masked softmax over legal options (see `algo/ppo.cpp`).
+- `Critic`: state → MLP → value.
+- `PPOLearner::update`: clip, entropy, value loss, grad clip, optional KL early stop.
+- `collectRollout`: sync thread pool collects Env episodes + GAE (`assignEpisodeReturns`); optional historical league eval games.
 
 ### Dense (potential) reward
 
@@ -127,9 +130,9 @@ PPO learner + batch tensors live on the selected device. **Rollout inference alw
 
 This environment’s packaged LibTorch is **CPU-only**; `--backend cuda` needs a CUDA LibTorch build + GPU. The code path still compiles and selects correctly.
 
-### 构建训练（LibTorch）
+### Build training (LibTorch)
 
-需要 LibTorch（如 2.5.1 cxx11 ABI）并设置 `CMAKE_PREFIX_PATH`：
+Requires LibTorch (e.g. 2.5.1 cxx11 ABI) and `CMAKE_PREFIX_PATH`:
 
 ```bash
 export PATH="/home/box/.local/cmake/bin:$PATH"
@@ -143,14 +146,14 @@ ctest --test-dir build --output-on-failure
 
 CLI (main): `--updates` `--games` `--threads` `--hidden` `--lr` `--epochs` `--mb` `--gamma` `--lambda` `--seed` `--out` `--backend` `--resume` plus dense-reward and league-pool flags above.
 
-CMake：`TETRIS_AI_WITH_TORCH`（找到 Torch 时 ON）构建 `tetris_ai_rl`、`tetris_ai_train`、`tetris_ai_eval`、可选 `test_rl`。未找到 Torch 时核心与 `test_game` / `test_rl_env` 仍可构建。
+CMake: `TETRIS_AI_WITH_TORCH` (ON when Torch is found) builds `tetris_ai_rl`, `tetris_ai_train`, `tetris_ai_eval`, and optional `test_rl`. Without Torch, the core plus `test_game` / `test_rl_env` still build.
 
-### 外部评估 / External eval（自带 Env 客户端）
+### External eval (built-in Env client)
 
-**目的 / purpose：** 看最多 **N** 个积木的 **分数**（以及消行数）；**死了就提前结束**。加载 `actor.pt`，在内置 `Env`/`Game` 上贪心（默认）对局，不依赖外部游戏服务。典型 N：`1000` / `10000`。
+**Purpose:** measure **score** (and lines) after at most **N** pieces; **stop early on death**. Loads `actor.pt` and plays greedy (default) games on the built-in `Env`/`Game` — no external game service. Typical N: `1000` / `10000`.
 
-- 打到 `pieces_placed >= N` 且未死 → 报告该局 `score` / `lines`，`survived=true`。
-- 中途死亡 → 提前停，报告死亡时的 `score` / `lines` / `pieces_placed`，`survived=false`，`death_piece=K+1`（锁定 K 块后第 K+1 块生成失败）。
+- Reach `pieces_placed >= N` without dying → report that game’s `score` / `lines`, `survived=true`.
+- Die earlier → stop and report score / lines / `pieces_placed` at death, `survived=false`, `death_piece=K+1` (spawn of piece K+1 failed after locking K pieces).
 
 ```bash
 export PATH="/home/box/.local/cmake/bin:$PATH"
@@ -161,17 +164,18 @@ cmake --build build -j --target tetris_ai_eval
 # optional: --stochastic  --hidden 128
 ```
 
-每局一行（分数在前）：`score=... lines=... pieces_placed=... seed=... survived=... death_piece=...`  
-末尾 `summary mean_score=... mean_lines=... mean_pieces=...`。
+One line per game (score first): `score=... lines=... pieces_placed=... seed=... survived=... death_piece=...`  
+Ends with `summary mean_score=... mean_lines=... mean_pieces=...`.
 
-CMake（需 LibTorch）：额外目标 `tetris_ai_eval`。
+CMake (needs LibTorch): extra target `tetris_ai_eval`.
 
-## 布局 / Layout
+## Layout
 
 ```
 tetris_ai/
   CMakeLists.txt
   README.md
+  README_zh.md
   src/tetris/     # core + features + env
   src/algo/       # PPO GAE / rollout (Torch)
   src/torch_nn/   # Actor Critic PPOLearner tensor_bridge
@@ -184,7 +188,7 @@ tetris_ai/
   go.mod
 ```
 
-## Go API（次） / Go API (secondary)
+## Go API (secondary)
 
 ```go
 import "github.com/esrrhs/tetris_ai/game"
@@ -199,7 +203,7 @@ go test ./...
 go run ./cmd/demo
 ```
 
-## 设计说明 / Notes
+## Notes
 
-- C++ 核心风格对齐 PerfectDouCPP 的 `src/<domain>/` + `algo/` + `torch_nn/` + CMake + gtest。
-- 旋转系统刻意保持简单，便于 RL；若需完整 SRS / 20+2 缓冲行，可后续扩展。
+- C++ core layout mirrors PerfectDouCPP: `src/<domain>/` + `algo/` + `torch_nn/` + CMake + gtest.
+- Rotation is intentionally simple for RL; full SRS / 20+2 buffer rows can be added later if needed.
