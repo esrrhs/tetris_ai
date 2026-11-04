@@ -243,8 +243,11 @@ TEST(Eval, FormatLineMachineReadable) {
   r.score = 40;
   r.decisions = 3;
   std::string line = algo::formatEvalLine(r);
+  // Headline metrics lead the line.
+  EXPECT_EQ(line.find("score=40"), 0u);
+  EXPECT_NE(line.find("lines=1"), std::string::npos);
+  EXPECT_NE(line.find("pieces_placed=3"), std::string::npos);
   EXPECT_NE(line.find("seed=7"), std::string::npos);
   EXPECT_NE(line.find("death_piece=4"), std::string::npos);
   EXPECT_NE(line.find("survived=false"), std::string::npos);
-  EXPECT_NE(line.find("pieces_placed=3"), std::string::npos);
 }

@@ -112,13 +112,15 @@ EvalResult evaluateGame(torch_nn::Actor& actor, const EvalConfig& cfg) {
 }
 
 std::string formatEvalLine(const EvalResult& r) {
+  // Headline metrics first: score / lines after up to N pieces (or death).
   std::ostringstream oss;
-  oss << "seed=" << r.seed << " pieces_placed=" << r.pieces_placed
-      << " death_piece=" << r.death_piece
+  oss << "score=" << r.score << " lines=" << r.lines
+      << " pieces_placed=" << r.pieces_placed << " seed=" << r.seed
       << " survived=" << (r.survived ? "true" : "false")
       << " hit_cap=" << (r.hit_cap ? "true" : "false")
-      << " done=" << (r.done ? "true" : "false") << " lines=" << r.lines
-      << " score=" << r.score << " decisions=" << r.decisions;
+      << " done=" << (r.done ? "true" : "false")
+      << " death_piece=" << r.death_piece
+      << " decisions=" << r.decisions;
   return oss.str();
 }
 

@@ -1,10 +1,9 @@
 // Tetris AI — external evaluation on the built-in Env (greedy or stochastic).
 //
+// Primary metric: score (and lines) after up to N pieces; die early → stop.
 // Example:
-//   tetris_ai_eval --ckpt /tmp/tetris_ckpt2 --max-pieces 50 --games 3 --seed 1
-//
-// death_piece: after K locks, spawn of piece K+1 fails → death_piece=K+1.
-// Cap: stop when pieces_placed >= max-pieces without Done → survived=true.
+//   tetris_ai_eval --ckpt /tmp/tetris_ckpt2 --max-pieces 1000 --games 5 --seed 1
+//   tetris_ai_eval --ckpt DIR --max-pieces 10000 --games 3
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -56,17 +55,18 @@ void parseArgs(int argc, char** argv, Args& a) {
 
 void printHelp() {
   std::cout
-      << "tetris_ai_eval — external eval on built-in Env\n"
+      << "tetris_ai_eval — score after up to N pieces on built-in Env\n"
+      << "  看最多 N 个积木的分数；死了就提前结束。\n"
       << "Usage:\n"
       << "  tetris_ai_eval --ckpt DIR [--max-pieces N] [--games G] [--seed S]\n"
       << "                [--hidden H] [--backend cpu|cuda|mps] [--greedy|--stochastic]\n"
       << "\n"
-      << "death_piece convention:\n"
-      << "  After K successful locks, spawn of the next piece fails → death_piece=K+1\n"
-      << "  (「第 K+1 个方块生成时死亡」). Survived to N locks → survived=true, death_piece=-1.\n"
+      << "Defaults: --max-pieces 1000. Typical: 1000 or 10000.\n"
+      << "Stop when pieces_placed >= N OR spawn-fail death (Done).\n"
+      << "Headline: score / lines. Also: pieces_placed, survived, death_piece.\n"
       << "\n"
-      << "Prints one machine-readable line per game:\n"
-      << "  seed=... pieces_placed=... death_piece=... survived=true|false hit_cap=...\n";
+      << "Per-game line (score first):\n"
+      << "  score=... lines=... pieces_placed=... seed=... survived=... death_piece=...\n";
 }
 
 }  // namespace
@@ -134,15 +134,14 @@ int main(int argc, char** argv) {
   actor->to(device);
   actor->eval();
 
-  std::cout << "tetris_ai_eval\n"
+  std::cout << "tetris_ai_eval  (score after up to N pieces; death → early stop)\n"
             << "  ckpt=" << args.ckpt << " device=" << deviceName
-            << " hidden=" << args.hidden << " greedy=" << (args.greedy ? "true" : "false")
+            << " hidden=" << args.hidden
+            << " greedy=" << (args.greedy ? "true" : "false")
             << " max_pieces=" << args.maxPieces << " games=" << args.games
-            << "\n"
-            << "  death_piece = pieces_placed+1 on spawn-fail death; -1 if survived to cap\n";
+            << "\n";
 
-  // Eval inference runs on the selected device; Env itself is CPU.
-  // Move actor to CPU for the shared evaluateGame path (matches rollout).
+  // Eval inference on CPU for the shared evaluateGame path (matches rollout).
   actor->to(torch::kCPU);
 
   long long sumPieces = 0;
@@ -169,13 +168,11 @@ int main(int argc, char** argv) {
     if (r.hit_cap) ++caps;
   }
 
-  if (args.games > 1) {
-    double n = static_cast<double>(args.games);
-    std::cout << "summary games=" << args.games
-              << " mean_pieces=" << (static_cast<double>(sumPieces) / n)
-              << " mean_lines=" << (static_cast<double>(sumLines) / n)
-              << " mean_score=" << (static_cast<double>(sumScore) / n)
-              << " deaths=" << deaths << " hit_cap=" << caps << "\n";
-  }
+  double n = static_cast<double>(args.games);
+  std::cout << "summary mean_score=" << (static_cast<double>(sumScore) / n)
+            << " mean_lines=" << (static_cast<double>(sumLines) / n)
+            << " mean_pieces=" << (static_cast<double>(sumPieces) / n)
+            << " games=" << args.games << " deaths=" << deaths
+            << " hit_cap=" << caps << "\n";
   return 0;
 }

@@ -1,12 +1,11 @@
-// External evaluation: run a loaded actor on the built-in Env until death or
-// a hard piece cap (no separate game server).
+// External evaluation on the built-in Env (no separate game server).
 //
-// death_piece convention (「第几个方块会死掉」):
-//   After K successful locks, Env auto-spawns the next piece. If that spawn
-//   collides → Done and Game::PiecesPlaced() == K.
-//   death_piece = K + 1  (died attempting the (K+1)-th piece spawn).
-//   If the agent reaches maxPieces successful locks without Done → survived=true,
-//   death_piece = -1, pieces_placed = maxPieces (cap hit inside the play loop).
+// Primary metric: score (and lines) after playing up to maxPieces locks
+// (e.g. 1000 / 10000). If the agent dies earlier, stop and report score at death.
+//
+// Secondary fields:
+//   death_piece = K + 1 when spawn fails after K locks; -1 if survived to cap.
+//   survived / hit_cap = true iff pieces_placed reached maxPieces without Done.
 #pragma once
 
 #include <cstdint>
@@ -19,29 +18,29 @@
 namespace algo {
 
 struct EvalConfig {
-  int maxPieces = 1000;     // hard cap on successful locks
+  int maxPieces = 1000;     // hard cap on successful locks (horizon)
   bool greedy = true;       // true: argmax over legal logits; false: sample
   uint64_t seed = 1;        // Env Reset seed (also seeds stochastic RNG)
-  tetris::EnvRewardConfig reward{};  // reward shaping unused for metrics; lines/score from Game
+  tetris::EnvRewardConfig reward{};  // shaping unused for metrics; lines/score from Game
 };
 
 struct EvalResult {
   int64_t seed = 0;
-  int pieces_placed = 0;  // successful locks (Game::PiecesPlaced)
-  int death_piece = -1;   // K+1 on death; -1 if survived to maxPieces
-  bool survived = false;  // true iff hit maxPieces without Done
-  bool hit_cap = false;   // alias of survived (machine-readable)
-  bool done = false;      // Env/Game Done at end
-  int lines = 0;
-  int score = 0;
-  int decisions = 0;      // agent placement steps taken
+  int score = 0;            // headline: Game::Score at end (death or cap)
+  int lines = 0;            // headline: Game::Lines at end
+  int pieces_placed = 0;    // successful locks (Game::PiecesPlaced)
+  int death_piece = -1;     // K+1 on death; -1 if survived to maxPieces
+  bool survived = false;    // true iff hit maxPieces without Done
+  bool hit_cap = false;     // alias of survived
+  bool done = false;        // Env/Game Done at end
+  int decisions = 0;        // agent placement steps taken
 };
 
 // Play one game with actor on built-in Env. Cap enforced inside the loop:
 // stop when Done OR pieces_placed >= maxPieces (after a Step).
 EvalResult evaluateGame(torch_nn::Actor& actor, const EvalConfig& cfg);
 
-// Format one game as machine-readable key=value tokens (one line).
+// Machine-readable one-liner; leads with score= / lines=.
 std::string formatEvalLine(const EvalResult& r);
 
 }  // namespace algo
