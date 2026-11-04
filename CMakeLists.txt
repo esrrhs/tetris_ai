@@ -44,7 +44,7 @@ if(TETRIS_AI_WITH_TORCH)
   if(Torch_FOUND)
     set(TETRIS_AI_TORCH_FOUND TRUE)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
-    message(STATUS "LibTorch found: building tetris_ai_rl + tetris_ai_train")
+    message(STATUS "LibTorch found: building tetris_ai_rl + tetris_ai_train + tetris_ai_eval")
   else()
     message(STATUS "LibTorch not found: skipping RL targets (core + tests only)")
   endif()
@@ -54,6 +54,7 @@ if(TETRIS_AI_TORCH_FOUND)
   add_library(tetris_ai_rl STATIC
     src/algo/ppo.cpp
     src/algo/rollout.cpp
+    src/algo/eval.cpp
     src/torch_nn/models.cpp
     src/torch_nn/ppo_learner.cpp
     src/torch_nn/tensor_bridge.cpp
@@ -63,6 +64,9 @@ if(TETRIS_AI_TORCH_FOUND)
 
   add_executable(tetris_ai_train src/train.cpp)
   target_link_libraries(tetris_ai_train PRIVATE tetris_ai_rl)
+
+  add_executable(tetris_ai_eval src/eval.cpp)
+  target_link_libraries(tetris_ai_eval PRIVATE tetris_ai_rl)
 endif()
 
 # ---- Tests ----

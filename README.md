@@ -136,7 +136,29 @@ ctest --test-dir build --output-on-failure
 
 CLI (main): `--updates` `--games` `--threads` `--hidden` `--lr` `--epochs` `--mb` `--gamma` `--lambda` `--seed` `--out` `--backend` `--resume` plus dense-reward and league-pool flags above.
 
-CMake：`TETRIS_AI_WITH_TORCH`（找到 Torch 时 ON）构建 `tetris_ai_rl`、`tetris_ai_train`、可选 `test_rl`。未找到 Torch 时核心与 `test_game` / `test_rl_env` 仍可构建。
+CMake：`TETRIS_AI_WITH_TORCH`（找到 Torch 时 ON）构建 `tetris_ai_rl`、`tetris_ai_train`、`tetris_ai_eval`、可选 `test_rl`。未找到 Torch 时核心与 `test_game` / `test_rl_env` 仍可构建。
+
+### 外部评估 / External eval（自带 Env 客户端）
+
+加载训练产出的 `actor.pt`，在 **内置 `Env`/`Game`** 上贪心（默认）或随机策略对局，直到 **死亡** 或达到 **最多 N 个方块**（成功锁定次数）上限。不依赖外部游戏服务。
+
+**death_piece 约定 / convention**
+
+- 成功锁定 K 个方块后，Env 自动生成下一块；若生成位置重叠 → `Done`，此时 `PiecesPlaced()==K`。
+- 报告 `death_piece = K + 1`：表示 **第 K+1 个方块生成时死亡**（「第几个方块会死掉」）。
+- 若未死亡且已锁定 `N` 个方块 → `survived=true`，`hit_cap=true`，`death_piece=-1`。
+
+```bash
+export PATH="/home/box/.local/cmake/bin:$PATH"
+cmake -S . -B build -DCMAKE_PREFIX_PATH=/workspace/deps/libtorch
+cmake --build build -j --target tetris_ai_eval
+./build/tetris_ai_eval --ckpt /tmp/tetris_ckpt2 --max-pieces 100 --games 3 --seed 1 --backend cpu
+# optional: --stochastic  --hidden 128
+```
+
+每局一行可机读输出：`seed=... pieces_placed=... death_piece=... survived=true|false hit_cap=... lines=... score=...`
+
+CMake（需 LibTorch）：额外目标 `tetris_ai_eval`。
 
 ## 布局 / Layout
 
@@ -148,6 +170,7 @@ tetris_ai/
   src/algo/       # PPO GAE / rollout (Torch)
   src/torch_nn/   # Actor Critic PPOLearner tensor_bridge
   src/train.cpp   # training entry
+  src/eval.cpp    # external eval entry
   src/demo/       # ASCII demo
   tests/          # gtest
   game/           # Go reference (kept)

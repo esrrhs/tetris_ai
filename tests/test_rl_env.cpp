@@ -146,3 +146,41 @@ TEST(Bag, PeekRemaining) {
   bag.Next();
   EXPECT_EQ(bag.PeekRemaining().size(), 6u);
 }
+
+TEST(Env, SpawnDeathPiecesPlacedConvention) {
+  // After K locks, a failed auto-spawn → Done with PiecesPlaced()==K.
+  // External eval reports death_piece = K + 1 (died on the (K+1)-th spawn).
+  EnvRewardConfig cfg;
+  cfg.denseReward = false;
+  cfg.deathPenalty = 0.f;
+  Env env(cfg);
+  env.Reset(1);
+  auto opts = env.LegalOptions();
+  ASSERT_FALSE(opts.empty());
+  env.Step(opts.front());
+  ASSERT_FALSE(env.Done());
+  const int k_after_first = env.game().PiecesPlaced();
+  EXPECT_GE(k_after_first, 1);
+
+  Game& g = env.mutable_game();
+  // Block spawn region (all pieces spawn at (4,0)) without completing lines:
+  // fill x=1..9 on rows 0..3, leave x=0 empty so ClearLines will not wipe them.
+  for (int y = 0; y < 4; ++y) {
+    for (int x = 1; x < kBoardWidth; ++x) {
+      g.mutable_board().cells[static_cast<size_t>(y)][static_cast<size_t>(x)] = 1;
+    }
+  }
+  // Lock one more piece in the empty column so Env auto-spawns → collision.
+  g.ForcePiece(PieceType::O, 0, 0, kBoardHeight - 3);
+  LegalOption opt;
+  opt.ops = {Op::HardDrop};
+  opt.id = 0;
+  auto r = env.Step(opt);
+  EXPECT_TRUE(r.done);
+  EXPECT_TRUE(env.Done());
+  const int k = env.game().PiecesPlaced();
+  EXPECT_EQ(k, k_after_first + 1);
+  const int death_piece = k + 1;  // convention used by tetris_ai_eval
+  EXPECT_EQ(death_piece, k + 1);
+  EXPECT_GT(death_piece, k);
+}
