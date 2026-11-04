@@ -7,7 +7,6 @@
 
 俄罗斯方块 **强化学习** 环境：按 `Step` 推进的可玩客户端核心 + PerfectDouCPP 风格的单智能体 PPO 训练脚手架。**C++ 为唯一核心**，布局对齐 [PerfectDouCPP](https://github.com/esrrhs/PerfectDouCPP)。
 
-仓库对应专属开发 Bot：`tetris_ai`。
 
 ## Step 语义
 

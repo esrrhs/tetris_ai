@@ -7,7 +7,6 @@
 
 Tetris **reinforcement-learning** play client and PPO scaffold. The clock advances only via `Step`. **C++ is the sole core**, styled like [PerfectDouCPP](https://github.com/esrrhs/PerfectDouCPP).
 
-Dedicated repo bot: `tetris_ai`.
 
 ## Step semantics
 
