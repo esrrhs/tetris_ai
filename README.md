@@ -13,10 +13,11 @@ Tetris **reinforcement-learning** play client and PPO scaffold. The clock advanc
 
 1. Game time advances **only** when `Step(ops...)` is called.
 2. Piece generation uses a **7-bag** (each bag holds one of each of the 7 pieces, shuffled, then drawn in order). A deterministic seeded PRNG is used, so the **same seed yields the same piece sequence**.
-3. When there is **no** active piece: this `Step` first **spawns** the next piece at the top; if the spawn overlaps locked cells → `Done=true` (game over). Otherwise: apply `ops` to the new piece, then try to **drop 1 row**.
-4. When there **is** an active piece: apply any number of `ops` in order, then gravity drops **exactly 1 row** (if the ops include `HardDrop`, the piece locks at the bottom and normal gravity is skipped).
-5. Ops only take effect inside `Step`; illegal moves (wall / overlap) are **ignored**, not errors.
-6. When a piece can no longer fall it **locks** and lines clear; the **next** `Step` (not the same one) spawns the following piece.
+3. **Next-5 preview rule**: the upcoming **5 pieces** (spanning bag boundaries) are public — shown in the `Render()` ASCII side panel (`NEXT`) and in the state features. Previewing never consumes the RNG / piece sequence.
+4. When there is **no** active piece: this `Step` first **spawns** the next piece at the top; if the spawn overlaps locked cells → `Done=true` (game over). Otherwise: apply `ops` to the new piece, then try to **drop 1 row**.
+5. When there **is** an active piece: apply any number of `ops` in order, then gravity drops **exactly 1 row** (if the ops include `HardDrop`, the piece locks at the bottom and normal gravity is skipped).
+6. Ops only take effect inside `Step`; illegal moves (wall / overlap) are **ignored**, not errors.
+7. When a piece can no longer fall it **locks** and lines clear; the **next** `Step` (not the same one) spawns the following piece.
 
 Allowed ops: `Left` / `Right` / `RotateCW` / `RotateCCW` / (optional) `HardDrop`.
 
@@ -77,11 +78,12 @@ Each agent step picks a **final placement** `(rot, x)` for the active piece: rot
 
 | Constant | Value | Contents |
 |----------|------:|----------|
-| `kStateSize` | **235** | board 20×10 binary (200) + piece one-hot(7) + rot one-hot(4) + x/y (2) + heights(10) + holes/bump/agg (3) + lines/score (2) + bag remaining counts(7) |
+| `kStateSize` | **270** | board 20×10 binary (200) + piece one-hot(7) + rot one-hot(4) + x/y (2) + heights(10) + holes/bump/agg (3) + lines/score (2) + bag remaining counts(7) + next-5 preview one-hots (5×7=35) |
 | `kActionFeatSize` | **18** | post-lock heights(10) + holes/bump/agg (3) + lines cleared + landing y + Δholes/Δbump/Δagg (3) |
 
-- **Actor** uses imperfect state: bag dims are all 0 (no peeking into the 7-bag).
-- **Critic** may include `Bag7::PeekRemaining()` counts (remaining in the current bag; empty at bag end until the next `Next` refill).
+- **Actor** uses imperfect state: bag dims are all 0 (no peeking into the 7-bag); the **next-5 preview dims are visible to the actor** (public rule info).
+- **Critic** additionally includes `Bag7::PeekRemaining()` counts (remaining in the current bag; empty at bag end until the next `Next` refill) on top of the same next-5 preview.
+- Checkpoints trained before the next-5 rule (state dim 235) are **incompatible** with the 270-dim models — retrain or re-eval from scratch.
 
 ### Models / Algo
 

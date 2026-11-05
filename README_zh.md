@@ -13,10 +13,11 @@
 
 1. 游戏时间 **只** 在调用 `Step(ops...)` 时前进。
 2. 方块生成使用 **7-bag**（每 7 个为一袋，袋内各出现一次，打乱后依次取出）。使用确定性种子 PRNG，**同一 seed 方块序列一致**。
-3. **无** 活动方块时：本次 `Step` 先在顶部 **生成** 下一个方块；若生成位置与已锁定格子重叠 → `Done=true`（游戏结束）。否则：对新生方块应用 `ops`，再尝试 **下落 1 行**。
-4. **有** 活动方块时：按顺序应用任意多个 `ops`，然后重力下落 **恰好 1 行**（若本次 ops 含 `HardDrop`，则一插到底并锁定，跳过普通重力）。
-5. 操作只在 `Step` 内生效；非法移动（撞墙/重叠）**忽略**，不报错。
-6. 方块无法再下落时 **锁定** 并消行；**下一次** `Step`（不是同一次）才生成下一个方块。
+3. **下 5 块预览规则**：后续 **5 个方块**（可跨袋边界）为公开信息——在 `Render()` ASCII 侧栏（`NEXT`）与状态特征中均可见。预览不消耗 RNG、不影响出块序列。
+4. **无** 活动方块时：本次 `Step` 先在顶部 **生成** 下一个方块；若生成位置与已锁定格子重叠 → `Done=true`（游戏结束）。否则：对新生方块应用 `ops`，再尝试 **下落 1 行**。
+5. **有** 活动方块时：按顺序应用任意多个 `ops`，然后重力下落 **恰好 1 行**（若本次 ops 含 `HardDrop`，则一插到底并锁定，跳过普通重力）。
+6. 操作只在 `Step` 内生效；非法移动（撞墙/重叠）**忽略**，不报错。
+7. 方块无法再下落时 **锁定** 并消行；**下一次** `Step`（不是同一次）才生成下一个方块。
 
 允许操作：`Left` / `Right` / `RotateCW` / `RotateCCW` /（可选）`HardDrop`。
 
@@ -77,11 +78,12 @@ Agent 每步在当前活动方块上选择一个 **最终落点** `(rot, x)`：�
 
 | 常量 | 值 | 内容 |
 |------|---:|------|
-| `kStateSize` | **235** | board 20×10 二值 (200) + piece one-hot(7) + rot one-hot(4) + x/y (2) + heights(10) + holes/bump/agg (3) + lines/score (2) + bag remaining counts(7) |
+| `kStateSize` | **270** | board 20×10 二值 (200) + piece one-hot(7) + rot one-hot(4) + x/y (2) + heights(10) + holes/bump/agg (3) + lines/score (2) + bag remaining counts(7) + 下5块预览 one-hot (5×7=35) |
 | `kActionFeatSize` | **18** | 锁定后 heights(10) + holes/bump/agg (3) + lines cleared + landing y + Δholes/Δbump/Δagg (3) |
 
-- **Actor** 使用 imperfect state：bag 维全 0（不偷看 7-bag）。
-- **Critic** 可带 `Bag7::PeekRemaining()` 计数（当前袋剩余，袋末为空直至下次 `Next` refill）。
+- **Actor** 使用 imperfect state：bag 维全 0（不偷看 7-bag）；**下 5 块预览维度对 actor 可见**（公开规则信息）。
+- **Critic** 在同样的下 5 块预览之外，还可带 `Bag7::PeekRemaining()` 计数（当前袋剩余，袋末为空直至下次 `Next` refill）。
+- 下 5 块规则引入前训练的旧检查点（状态维度 235）与 270 维新模型**不兼容**，需重新训练/评测。
 
 ### 模型 / 算法
 

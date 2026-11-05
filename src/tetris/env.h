@@ -74,7 +74,8 @@ class Env {
   std::vector<LegalOption> LegalOptions() const;
   void LegalOptions(std::vector<LegalOption>& out) const;
 
-  // Actor state (bag zeros) / critic state (bag peek).
+  // Actor state (next-5 preview yes, bag peek zeros) /
+  // critic state (next-5 preview + bag peek).
   void EncodeActorState(std::array<float, kStateSize>& out) const;
   void EncodeCriticState(std::array<float, kStateSize>& out) const;
 

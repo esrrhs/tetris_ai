@@ -176,7 +176,19 @@ void EncodeState(const Game& g, std::array<float, kStateSize>& out,
       }
     }
   }
-  // i += 7;  // end of state
+  i += 7;
+
+  // Next-5 preview (5 × 7 one-hot) — public rule info shown in the UI panel.
+  // Written for BOTH actor and critic paths (only the bag peek above is
+  // critic-only), so the policy can plan across the upcoming pieces.
+  std::vector<PieceType> nxt = g.NextPieces(kNextPreview);
+  for (size_t slot = 0; slot < nxt.size() && slot < kNextPreview; ++slot) {
+    int pt = static_cast<int>(nxt[slot]);
+    if (pt >= 0 && pt < 7) {
+      out[static_cast<size_t>(i + slot * 7 + pt)] = 1.f;
+    }
+  }
+  i += kNextPreview * 7;  // end of state
   (void)i;
 }
 

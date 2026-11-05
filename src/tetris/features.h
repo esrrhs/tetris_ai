@@ -1,12 +1,13 @@
 // Compact Tetris state / action features (PerfectDou-style option features,
 // without DouZero card matrices).
 //
-// State (kStateSize = 235):
+// State (kStateSize = 270):
 //   board 20×10 binary (200)
 //   piece type one-hot(7), rot one-hot(4), x/y normalized (2)
 //   column heights(10), holes, bumpiness, aggregate height
 //   lines / score scalars (normalized)
 //   bag remaining counts(7) — critic peek; actor path zeros these (imperfect)
+//   next-5 preview one-hots (5×7) — public rule info, actor AND critic see it
 //
 // Action per placement (kActionFeatSize = 18):
 //   resulting column heights(10), holes, bumpiness, aggregate height,
@@ -23,7 +24,7 @@
 
 namespace tetris {
 
-constexpr int kStateSize = 235;
+constexpr int kStateSize = 235 + kNextPreview * 7;  // 270
 constexpr int kActionFeatSize = 18;
 
 // Board metrics used by both state and action features.

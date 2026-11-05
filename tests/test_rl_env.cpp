@@ -6,7 +6,8 @@
 using namespace tetris;
 
 TEST(Features, StateDimConstant) {
-  EXPECT_EQ(kStateSize, 235);
+  EXPECT_EQ(kNextPreview, 5);
+  EXPECT_EQ(kStateSize, 270);
   EXPECT_EQ(kActionFeatSize, 18);
 }
 
@@ -18,6 +19,48 @@ TEST(Features, EncodeStateSize) {
   float sum = 0;
   for (float v : s) sum += v;
   EXPECT_GT(sum, 0.f);
+}
+
+TEST(Features, NextFiveVisibleToActorBagHidden) {
+  Game g(42);
+  g.Step();
+  std::array<float, kStateSize> actor{}, critic{};
+  EncodeState(g, actor, /*include_bag=*/false);
+  EncodeState(g, critic, /*include_bag=*/true);
+
+  // Bag block (dims 228..234): zeros for actor, non-zero for critic early game.
+  float actorBag = 0, criticBag = 0;
+  for (int i = 228; i < 235; ++i) {
+    actorBag += actor[static_cast<size_t>(i)];
+    criticBag += critic[static_cast<size_t>(i)];
+  }
+  EXPECT_EQ(actorBag, 0.f);
+  EXPECT_GT(criticBag, 0.f);
+
+  // Next-5 block (dims 235..269): exactly 5 one-hot entries for both paths.
+  auto checkNext = [&](const std::array<float, kStateSize>& s) {
+    float sum = 0;
+    int hot = 0;
+    for (int i = 235; i < 270; ++i) {
+      sum += s[static_cast<size_t>(i)];
+      if (s[static_cast<size_t>(i)] == 1.f) ++hot;
+    }
+    EXPECT_FLOAT_EQ(sum, 5.f);
+    EXPECT_EQ(hot, 5);
+  };
+  checkNext(actor);
+  checkNext(critic);
+
+  // Encoded one-hots match Game::NextPieces order.
+  std::vector<PieceType> nxt = g.NextPieces(kNextPreview);
+  ASSERT_EQ(nxt.size(), 5u);
+  for (int slot = 0; slot < 5; ++slot) {
+    int pt = static_cast<int>(nxt[static_cast<size_t>(slot)]);
+    for (int j = 0; j < 7; ++j) {
+      float want = (j == pt) ? 1.f : 0.f;
+      EXPECT_EQ(actor[static_cast<size_t>(235 + slot * 7 + j)], want);
+    }
+  }
 }
 
 TEST(Env, ResetHasActivePieceAndLegalOptions) {

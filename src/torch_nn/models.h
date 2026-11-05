@@ -8,7 +8,7 @@
 namespace torch_nn {
 
 // Mirror feature dims as int64 for LibTorch APIs.
-constexpr int64_t kStateInput = tetris::kStateSize;        // 235
+constexpr int64_t kStateInput = tetris::kStateSize;        // 270
 constexpr int64_t kActionInput = tetris::kActionFeatSize;  // 18
 // Max local options packed into a dense logit row (scatter by action id).
 constexpr int64_t kMaxActions = 64;

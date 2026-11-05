@@ -67,6 +67,11 @@ class Game {
   // Remaining pieces in the current 7-bag (critic peek). Empty near bag end.
   std::vector<PieceType> PeekBagRemaining() const { return bag_.PeekRemaining(); }
 
+  // Next n upcoming pieces in draw order (spans bag boundaries). The standard
+  // preview rule is kNextPreview=5; the next-panel UI and state features both
+  // use this. Pure peek — does not affect the piece sequence.
+  std::vector<PieceType> NextPieces(int n) const { return bag_.PeekNext(n); }
+
   // Force an active piece (tests).
   void ForcePiece(PieceType t, int rot, int x, int y) {
     piece_ = ActivePiece{t, rot, x, y};

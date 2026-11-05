@@ -104,6 +104,72 @@ TEST(Bag, SevenBagFairness) {
   EXPECT_EQ(seen2.size(), 7u);
 }
 
+TEST(Bag, PeekNextMatchesDraws) {
+  // PeekNext must return exactly the upcoming draws, including across bag
+  // boundaries, and must not consume anything.
+  Bag7 b(777);
+  for (int draw = 0; draw < 40; ++draw) {
+    std::vector<PieceType> peek = b.PeekNext(5);
+    ASSERT_EQ(peek.size(), 5u);
+    for (int k = 0; k < 5; ++k) {
+      EXPECT_EQ(static_cast<int>(peek[static_cast<size_t>(k)]),
+                static_cast<int>(b.Next()))
+          << "draw=" << draw << " k=" << k;
+    }
+  }
+}
+
+TEST(Bag, PeekRemainingSemanticsPreserved) {
+  Bag7 b(123);
+  EXPECT_EQ(b.PeekRemaining().size(), 7u);
+  for (int i = 6; i >= 1; --i) {
+    b.Next();
+    EXPECT_EQ(b.PeekRemaining().size(), static_cast<size_t>(i));
+  }
+  b.Next();  // bag exhausted
+  EXPECT_TRUE(b.PeekRemaining().empty());
+  b.Next();  // refills into the next bag; first piece of it drawn
+  EXPECT_EQ(b.PeekRemaining().size(), 6u);
+  // PeekRemaining must be a prefix of PeekNext.
+  std::vector<PieceType> rem = b.PeekRemaining();
+  std::vector<PieceType> nxt = b.PeekNext(7);
+  ASSERT_GE(nxt.size(), rem.size());
+  for (size_t i = 0; i < rem.size(); ++i) EXPECT_EQ(rem[i], nxt[i]);
+}
+
+TEST(Game, NextPiecesPredictsSpawns) {
+  Game g(99);
+  g.Step();  // spawn piece 0
+  for (int i = 0; i < 30; ++i) {
+    std::vector<PieceType> nxt = g.NextPieces(kNextPreview);
+    ASSERT_EQ(nxt.size(), 5u);
+    // Hard-drop until the next spawn; the spawned piece must be nxt[0].
+    PieceType spawned = nxt[0];
+    while (g.HasActivePiece() && !g.Done()) g.Step(Op::HardDrop);
+    if (g.Done()) return;
+    Result r = g.Step();  // spawn (may collide → done; piece still consumed)
+    if (r.done) return;
+    ASSERT_TRUE(r.info.spawned);
+    EXPECT_EQ(r.info.piece_id, spawned);
+  }
+}
+
+TEST(Game, RenderShowsNextPanel) {
+  Game g(1);
+  g.Step();
+  std::string s = g.Render(true);
+  EXPECT_NE(s.find("NEXT"), std::string::npos);
+  EXPECT_NE(s.find("next="), std::string::npos);
+  // Panel lists kNextPreview glyphs (one letter per upcoming piece).
+  size_t pos = s.find("next=");
+  ASSERT_NE(pos, std::string::npos);
+  int letters = 0;
+  for (size_t i = pos + 5; i < s.size() && s[i] != '\n'; ++i) {
+    if (s[i] != ' ') ++letters;
+  }
+  EXPECT_EQ(letters, kNextPreview);
+}
+
 TEST(Game, RotateCW) {
   Game g(11);
   Result r = g.Step(Op::RotateCW);

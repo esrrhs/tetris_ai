@@ -34,6 +34,7 @@ Result Game::Step(std::span<const Op> ops) {
   bool hard_dropped = false;
   int lines_cleared = 0;
   int score_gain = 0;
+  std::optional<PieceType> stepPiece;  // piece this step spawned or moved
 
   // --- spawn if needed ---
   if (!piece_) {
@@ -44,13 +45,17 @@ Result Game::Step(std::span<const Op> ops) {
       res.done = true;
       res.obs = Observe();
       res.info = Info{.score = score_, .locked = false, .spawned = false};
+      res.info.piece_id = t;  // the colliding piece was consumed
       return res;
     }
     piece_ = ActivePiece{t, 0, origin.x, origin.y};
+    stepPiece = t;
     spawned = true;
     res.info.spawned = true;
     res.info.piece_id = t;
     res.info.has_piece = true;
+  } else {
+    stepPiece = piece_->type;
   }
 
   // --- apply ops ---
@@ -108,7 +113,14 @@ Result Game::Step(std::span<const Op> ops) {
       .spawned = spawned,
       .hard_dropped = hard_dropped,
   };
-  if (piece_) res.info.piece_id = piece_->type;
+  // The trailing aggregate Info assignment resets piece_id; restore it for
+  // steps where the piece locked (piece_ is already reset) — otherwise
+  // spawn-and-instant-lock steps would report the default I.
+  if (piece_) {
+    res.info.piece_id = piece_->type;
+  } else if (stepPiece) {
+    res.info.piece_id = *stepPiece;
+  }
   return res;
 }
 

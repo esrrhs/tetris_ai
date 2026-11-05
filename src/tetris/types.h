@@ -11,6 +11,10 @@ namespace tetris {
 constexpr int kBoardWidth = 10;
 constexpr int kBoardHeight = 20;
 
+// Rule: the next kNextPreview upcoming pieces are previewed (UI panel +
+// state features). Public information — both actor and critic see it.
+constexpr int kNextPreview = 5;
+
 // Discrete action applied only inside Step.
 enum class Op : int {
   Left = 0,

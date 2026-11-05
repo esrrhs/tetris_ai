@@ -13,7 +13,7 @@
 namespace algo {
 
 struct Transition {
-  std::array<float, tetris::kStateSize> state{};        // actor (no bag)
+  std::array<float, tetris::kStateSize> state{};        // actor (no bag peek)
   std::array<float, tetris::kStateSize> criticState{};  // with bag peek
   // Local option id → action feature for every legal placement at decision time.
   std::vector<std::pair<int, std::array<float, tetris::kActionFeatSize>>> actions;
