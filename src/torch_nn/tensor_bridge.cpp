@@ -73,16 +73,18 @@ BatchTensors transitionsToBatch(const std::vector<algo::Transition>& trInput,
   }
 
   if (device != torch::kCPU) {
-    bt.state = bt.state.to(device, /*non_blocking=*/true);
-    bt.criticState = bt.criticState.to(device, /*non_blocking=*/true);
-    bt.actions = bt.actions.to(device, /*non_blocking=*/true);
-    bt.oldLogp = bt.oldLogp.to(device, /*non_blocking=*/true);
-    bt.adv = bt.adv.to(device, /*non_blocking=*/true);
-    bt.ret = bt.ret.to(device, /*non_blocking=*/true);
-    bt.oldValue = bt.oldValue.to(device, /*non_blocking=*/true);
-    bt.actionFeat = bt.actionFeat.to(device, /*non_blocking=*/true);
-    bt.actionSample = bt.actionSample.to(device, /*non_blocking=*/true);
-    bt.actionId = bt.actionId.to(device, /*non_blocking=*/true);
+    // Blocking H2D copies: pageable-memory non_blocking copies to MPS can race
+    // (staging buffer reuse) and deliver garbage tensors on some LibTorch builds.
+    bt.state = bt.state.to(device);
+    bt.criticState = bt.criticState.to(device);
+    bt.actions = bt.actions.to(device);
+    bt.oldLogp = bt.oldLogp.to(device);
+    bt.adv = bt.adv.to(device);
+    bt.ret = bt.ret.to(device);
+    bt.oldValue = bt.oldValue.to(device);
+    bt.actionFeat = bt.actionFeat.to(device);
+    bt.actionSample = bt.actionSample.to(device);
+    bt.actionId = bt.actionId.to(device);
   }
   return bt;
 }
