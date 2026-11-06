@@ -36,6 +36,8 @@ double Env::ShapeReward(const BoardMetrics& before, const BoardMetrics& after,
   }
   if (done) {
     reward += static_cast<double>(reward_.deathPenalty);
+  } else if (reward_.survivalBonus != 0.f) {
+    reward += static_cast<double>(reward_.survivalBonus);
   }
   return reward;
 }

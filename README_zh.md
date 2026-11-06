@@ -85,6 +85,16 @@ Agent 每步在当前活动方块上选择一个 **最终落点** `(rot, x)`：�
 - **Critic** 在同样的下 5 块预览之外，还可带 `Bag7::PeekRemaining()` 计数（当前袋剩余，袋末为空直至下次 `Next` refill）。
 - 下 5 块规则引入前训练的旧检查点（状态维度 235）与 270 维新模型**不兼容**，需重新训练/评测。
 
+**累计特征与长局分布漂移**：`lines/100`（维度 226）与 `score/10000`（维度 227）是无上界累计量。500 步训练局里最大约 `2 / 1.2`，而 10000 块长局会到 `40 / 23`，策略进入分布外。可用 `--state-features raw|clamp|zero` 控制：
+
+| 模式 | 行为 | 用途 |
+|---|---|---|
+| `raw` | 原样、无上界（默认） | 兼容旧检查点 |
+| `clamp` | 裁剪到训练范围 `2.0 / 1.2` | 诊断 / 平滑迁移 |
+| `zero` | 两维恒为 0，状态变平稳 | **长局训练推荐** |
+
+`train` / `eval` / `pretrain` 三个入口都接受该参数，**评测时必须与训练时一致**。默认 `raw` 保证旧检查点结果不变。
+
 ### 模型 / 算法
 
 - `Actor`: `joint = concat(state, actionFeat)` → MLP → scalar logit；对合法 option 做 masked softmax（见 `algo/ppo.cpp`）。
@@ -100,14 +110,47 @@ Agent 每步在当前活动方块上选择一个 **最终落点** `(rot, x)`：�
 φ = wH * aggregate_height + wHole * holes + wBump * bumpiness
 score_gain = LineScore(lines) + ComboBonus(combo_index)   # 与 Game 得分一致
 reward = lineCoef * (score_gain / 40.0) + denseCoef * (φ_before - φ_after)
-       + (done ? deathPenalty : 0)
+       + (done ? deathPenalty : survivalBonus)
 ```
+
+`survivalBonus`（`--survival-bonus`，默认 0）是每存活一个决策的奖励；配合较长的折扣视野与较大的 `--death-penalty`，让"不死"成为显式目标而非消行之间的奖励空白。
 
 示例（`lineCoef=1`，无 dense）：单消=1.0，双消=2.5，三消=7.5，四消=30.0；连消后续单消=2.0 (40+40)/40。
 
 默认：`wH=1`，`wHole=1`，`wBump=0.5`，`lineCoef=1`，`denseCoef=0.01`，`deathPenalty=-1`，`denseReward=true`。
 
-CLI：`--dense-reward` / `--no-dense-reward`，`--dense-coef`，`--line-coef`，`--death-penalty`，`--w-height`，`--w-hole`，`--w-bump`。
+CLI：`--dense-reward` / `--no-dense-reward`，`--dense-coef`，`--line-coef`，`--death-penalty`，`--survival-bonus`，`--w-height`，`--w-hole`，`--w-bump`。
+
+### 长局训练（避免 500 步截断）
+
+`collectRollout` 默认 `maxStepsPerGame = 500`。只优化到 500 步的策略在 10000 块长局里会大比例死亡（见下）。相关改动：
+
+- `--max-steps N`：提高每局训练上限；建议配合 `--games` 反向缩小以维持相近的 transition 预算（例如 `500×64` → `2000×16` → `8000×4`）。
+- **截断 bootstrap**：被步数上限截断（而非真正死亡）的局，GAE 末端现在用 `V(s_T)` 引导；旧实现默认末端价值为 0，会把"接近上限"压成低价值，反而鼓励早点结束。
+- `gameId` 现在按 worker/game 唯一分配，不再有溢出与碰撞风险。
+- `--gamma`、`--ent`、`--target-kl` 可直接用于延长视野与保熵。
+
+### 模仿学习教师（`tetris_ai_pretrain`）
+
+`src/tetris/heuristic.*` 提供一个 Dellacherie / El-Tetris 风格的经典盘面评估控制器（含下一步生成失败的一步前瞻）。在本环境下它能稳定打到 50000 块且零死亡，因此作为专家教师用于 **DAgger 行为克隆**：
+
+- 每轮在 **student 自己会访问到的盘面**上采样（行为策略按 `--student-prob-start` → `--student-prob-end` 从教师逐渐切到学生），标签始终是教师的最优落点；
+- 用交叉熵训练与 PPO 完全相同的 `Actor`（合法落点 masked softmax），输出 `actor.pt` / `critic.pt` / `meta.txt`，可直接评估或作为 `--resume` 做 PPO 微调；
+- 每轮打印 `agree`（学生贪心与教师一致率）、`ce`、采样死亡数、贪心自评存活数，并保存检查点。
+
+```bash
+./build/tetris_ai_pretrain --iters 20 --games 32 --steps 2000 --threads 8 \
+  --hidden 256 --lr 5e-4 --backend cuda --state-features zero \
+  --out ckpt_bc
+./build/tetris_ai_eval --ckpt ckpt_bc --hidden 256 --state-features zero \
+  --max-pieces 10000 --games 20 --seed 4001 --backend cpu
+# 可选：从模仿模型出发做长局 PPO 微调
+./build/tetris_ai_train --resume ckpt_bc --hidden 256 --max-steps 4000 \
+  --games 8 --state-features zero --survival-bonus 0.01 \
+  --death-penalty -20 --gamma 0.997 --ent 0.02 --backend cuda --out ckpt_bc_ppo
+```
+
+CLI：`--iters` `--games` `--steps` `--threads` `--hidden` `--epochs` `--mb` `--lr` `--seed` `--backend` `--state-features` `--student-prob-start` / `--student-prob-end` `--eval-pieces` `--eval-games` `--out` `--resume`。
 
 ### 历史联赛池（单智能体）
 
@@ -148,7 +191,7 @@ ctest --test-dir build --output-on-failure
 
 CLI（主要）：`--updates` `--games` `--threads` `--hidden` `--lr` `--epochs` `--mb` `--gamma` `--lambda` `--seed` `--out` `--backend` `--resume`，以及上面的 dense-reward / league-pool 参数。
 
-CMake：`TETRIS_AI_WITH_TORCH`（找到 Torch 时 ON）构建 `tetris_ai_rl`、`tetris_ai_train`、`tetris_ai_eval`、可选 `test_rl`。未找到 Torch 时核心与 `test_game` / `test_rl_env` 仍可构建。
+CMake：`TETRIS_AI_WITH_TORCH`（找到 Torch 时 ON）构建 `tetris_ai_rl`、`tetris_ai_train`、`tetris_ai_eval`、`tetris_ai_pretrain`、可选 `test_rl`。未找到 Torch 时核心与 `test_game` / `test_rl_env` / `test_heuristic` 仍可构建。
 
 ### 外部评估（自带 Env 客户端）
 
@@ -163,7 +206,7 @@ cmake -S . -B build -DCMAKE_PREFIX_PATH=/workspace/deps/libtorch
 cmake --build build -j --target tetris_ai_eval
 ./build/tetris_ai_eval --ckpt /tmp/tetris_ckpt2 --max-pieces 1000 --games 5 --seed 1 --backend cpu
 ./build/tetris_ai_eval --ckpt /tmp/tetris_ckpt2 --max-pieces 10000 --games 3 --seed 1 --backend cpu
-# optional: --stochastic  --hidden 128
+# optional: --stochastic  --hidden 256  --state-features zero
 ```
 
 每局一行（分数在前）：`score=... lines=... pieces_placed=... seed=... survived=... death_piece=...`  
@@ -178,10 +221,11 @@ tetris_ai/
   CMakeLists.txt
   README.md
   README_zh.md
-  src/tetris/     # core + features + env
+  src/tetris/     # core + features + env + heuristic teacher
   src/algo/       # PPO GAE / rollout (Torch)
   src/torch_nn/   # Actor Critic PPOLearner tensor_bridge
-  src/train.cpp   # training entry
+  src/train.cpp   # PPO training entry
+  src/pretrain.cpp# DAgger imitation entry
   src/eval.cpp    # external eval entry
   src/demo/       # ASCII demo
   tests/          # gtest

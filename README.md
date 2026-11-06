@@ -100,8 +100,12 @@ Tetris analogue of PerfectDou’s oracle shaping — **potential-based shaping o
 φ = wH * aggregate_height + wHole * holes + wBump * bumpiness
 score_gain = LineScore(lines) + ComboBonus(combo_index)   # same as Game score
 reward = lineCoef * (score_gain / 40.0) + denseCoef * (φ_before - φ_after)
-       + (done ? deathPenalty : 0)
+       + (done ? deathPenalty : survivalBonus)
 ```
+
+`survivalBonus` (`--survival-bonus`, default 0) rewards every surviving decision.
+Combined with a longer discount horizon and a larger `--death-penalty`, it makes
+survival an explicit objective instead of an absence of reward between clears.
 
 Examples (`lineCoef=1`, no dense): single=1.0, double=2.5, triple=7.5, tetris=30.0; combo follow-up single=2.0 (40+40)/40.
 
@@ -146,7 +150,43 @@ ctest --test-dir build --output-on-failure
   --dense-reward --out /tmp/tetris_ckpt2 --backend cpu
 ```
 
-CLI (main): `--updates` `--games` `--threads` `--hidden` `--lr` `--epochs` `--mb` `--gamma` `--lambda` `--seed` `--out` `--backend` `--resume` plus dense-reward and league-pool flags above.
+CLI (main): `--updates` `--games` `--threads` `--hidden` `--lr` `--epochs` `--mb` `--gamma` `--lambda` `--seed` `--out` `--backend` `--resume` plus dense-reward, league-pool, `--max-steps`, `--survival-bonus` and `--state-features` flags.
+
+### Long-horizon training & imitation teacher
+
+The default rollout cap is `maxStepsPerGame = 500`. A policy optimised only to
+500 steps dies frequently in 10000-piece games. Fixes:
+
+- `--max-steps N` raises the per-episode cap. Lower `--games` accordingly to
+  keep a similar transition budget (`500×64` → `2000×16` → `8000×4`).
+- Episodes cut off by the cap (not real deaths) now bootstrap GAE with
+  `V(s_T)`; the old code assumed 0 there and biased the value head toward
+  ending near the cap.
+- `--state-features raw|clamp|zero` controls the two unbounded cumulative
+  state dims (`lines/100`, `score/10000`). `zero` makes the state stationary
+  and is recommended for long games. `train`, `eval` and `pretrain` all take
+  this flag — **eval must use the same mode as training**; `raw` is the default
+  so legacy checkpoints are unaffected.
+- `src/tetris/heuristic.*` implements a Dellacherie / El-Tetris style teacher
+  with one-step spawn-death lookahead. It survives 50000+ pieces with zero
+  deaths here. `tetris_ai_pretrain` distills it into the same `Actor` with
+  DAgger (states sampled on the student's own trajectories, labels from the
+  teacher), writing a normal `actor.pt` / `critic.pt` / `meta.txt` checkpoint.
+
+```bash
+./build/tetris_ai_pretrain --iters 20 --games 32 --steps 2000 --threads 8 \
+  --hidden 256 --lr 5e-4 --backend cuda --state-features zero --out ckpt_bc
+./build/tetris_ai_eval --ckpt ckpt_bc --hidden 256 --state-features zero \
+  --max-pieces 10000 --games 20 --seed 4001 --backend cpu
+./build/tetris_ai_train --resume ckpt_bc --hidden 256 --max-steps 4000 \
+  --games 8 --state-features zero --survival-bonus 0.01 \
+  --death-penalty -20 --gamma 0.997 --ent 0.02 --backend cuda --out ckpt_bc_ppo
+```
+
+`pretrain` flags: `--iters` `--games` `--steps` `--threads` `--hidden`
+`--epochs` `--mb` `--lr` `--seed` `--backend` `--state-features`
+`--student-prob-start` / `--student-prob-end` `--eval-pieces` `--eval-games`
+`--out` `--resume`.
 
 CMake: `TETRIS_AI_WITH_TORCH` (ON when Torch is found) builds `tetris_ai_rl`, `tetris_ai_train`, `tetris_ai_eval`, and optional `test_rl`. Without Torch, the core plus `test_game` / `test_rl_env` still build.
 

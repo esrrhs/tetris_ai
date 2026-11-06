@@ -18,6 +18,7 @@
 
 #include "algo/ppo.h"
 #include "algo/rollout.h"
+#include "tetris/features.h"
 #include "torch_nn/models.h"
 #include "torch_nn/ppo_learner.h"
 #include "torch_nn/tensor_bridge.h"
@@ -34,6 +35,9 @@ struct Args {
   int hidden = 128;
   int epochs = 4;
   int minibatch = 256;
+  int maxSteps = 500;  // per-episode cap during rollout
+  float survivalBonus = 0.0f;
+  std::string stateFeatures = "raw";  // raw | clamp | zero
   float lr = 3e-4f;
   float clip = 0.2f;
   float ent = 0.01f;
@@ -87,6 +91,10 @@ void parseArgs(int argc, char** argv, Args& a) {
       argValue(argc, argv, "--epochs", std::to_string(a.epochs).c_str()));
   a.minibatch = std::atoi(
       argValue(argc, argv, "--mb", std::to_string(a.minibatch).c_str()));
+  a.maxSteps = std::atoi(argValue(argc, argv, "--max-steps", "500"));
+  a.survivalBonus =
+      float(std::atof(argValue(argc, argv, "--survival-bonus", "0")));
+  a.stateFeatures = argValue(argc, argv, "--state-features", "raw");
   a.lr = float(std::atof(argValue(argc, argv, "--lr", "3e-4")));
   a.clip = float(std::atof(argValue(argc, argv, "--clip", "0.2")));
   a.ent = float(std::atof(argValue(argc, argv, "--ent", "0.01")));
@@ -133,6 +141,18 @@ int main(int argc, char** argv) {
   Args args;
   parseArgs(argc, argv, args);
   if (args.threads <= 0) args.threads = 1;
+  if (args.maxSteps < 1) args.maxSteps = 1;
+
+  tetris::StateFeatureMode sfMode{};
+  if (!tetris::ParseStateFeatureMode(args.stateFeatures, sfMode)) {
+    std::fprintf(stderr,
+                 "Invalid --state-features '%s'. Use raw | clamp | zero.\n",
+                 args.stateFeatures.c_str());
+    return 1;
+  }
+  // Must match the mode used when the checkpoint was trained; eval.cpp takes
+  // the same flag so a long-horizon policy is never scored with raw features.
+  tetris::SetStateFeatureMode(sfMode);
 
   torch::Device device = torch::kCPU;
   std::string deviceName = "CPU";
@@ -203,6 +223,10 @@ int main(int argc, char** argv) {
                     : "")
             << " games=" << args.games << " threads=" << args.threads
             << " hidden=" << args.hidden << " lr=" << args.lr << "\n";
+  std::cout << "  max_steps=" << args.maxSteps
+            << " state_features=" << tetris::StateFeatureModeName(sfMode)
+            << " survival_bonus=" << args.survivalBonus
+            << " gamma=" << args.gamma << " ent=" << args.ent << "\n";
   std::cout << "  dense_reward="
             << (args.denseReward
                     ? ("yes(coef=" + std::to_string(args.denseCoef) +
@@ -376,6 +400,9 @@ int main(int argc, char** argv) {
         metaFile << "update " << currentUpd << "\n"
                  << "seed " << args.seed << "\n"
                  << "lr " << args.lr << "\n"
+                 << "max_steps " << args.maxSteps << "\n"
+                 << "state_features " << args.stateFeatures << "\n"
+                 << "survival_bonus " << args.survivalBonus << "\n"
                  << "dense_reward " << (args.denseReward ? 1 : 0) << "\n"
                  << "dense_coef " << args.denseCoef << "\n";
       }
@@ -388,6 +415,7 @@ int main(int argc, char** argv) {
   algo::RolloutConfig rcfg;
   rcfg.gamesPerUpdate = args.games;
   rcfg.threads = args.threads;
+  rcfg.maxStepsPerGame = args.maxSteps;
   rcfg.historicalProb = args.histProb;
   rcfg.historicalPool = histPool.get();
   rcfg.reward.denseReward = args.denseReward;
@@ -397,6 +425,7 @@ int main(int argc, char** argv) {
   rcfg.reward.wH = args.wH;
   rcfg.reward.wHole = args.wHole;
   rcfg.reward.wBump = args.wBump;
+  rcfg.reward.survivalBonus = args.survivalBonus;
 
   algo::ModelSet models;
   models.actor = &cpuActor;

@@ -15,7 +15,7 @@ namespace {
 // Play one game with the given actor (+ optional critic for learning).
 // When collectTransitions is false (league eval), only episode stats are kept.
 void playGame(torch_nn::Actor* actor, torch_nn::Critic* critic,
-              const RolloutConfig& cfg, uint64_t seed, int gi,
+              const RolloutConfig& cfg, uint64_t seed, int gameIdBase, int gi,
               bool collectTransitions, std::vector<Transition>& out,
               int& epLines, int& epScore, int& epPieces, int& epLen) {
   torch::NoGradGuard no_grad;
@@ -30,6 +30,8 @@ void playGame(torch_nn::Actor* actor, torch_nn::Critic* critic,
   epScore = 0;
   epPieces = 0;
   epLen = 0;
+  size_t lastTransition = 0;
+  bool hasTransition = false;
 
   while (!env.Done() && steps < cfg.maxStepsPerGame) {
     auto options = env.LegalOptions();
@@ -38,7 +40,8 @@ void playGame(torch_nn::Actor* actor, torch_nn::Critic* critic,
     Transition t;
     env.EncodeActorState(t.state);
     env.EncodeCriticState(t.criticState);
-    t.gameId = static_cast<int>(seed % 1000003) * 100000 + gi;
+    // Unique across workers and games: no overflow, no hash collisions.
+    t.gameId = gameIdBase + gi;
     t.actions.clear();
     t.actions.reserve(options.size());
     for (const auto& o : options) {
@@ -91,12 +94,27 @@ void playGame(torch_nn::Actor* actor, torch_nn::Critic* critic,
     t.reward = static_cast<float>(step.reward);
     t.terminal = step.done;
     if (collectTransitions) {
+      lastTransition = out.size();
       out.push_back(std::move(t));
+      hasTransition = true;
     }
 
     ++epLen;
     ++steps;
     if (step.done) break;
+  }
+
+  // Episode ended only because it hit maxStepsPerGame: bootstrap the tail with
+  // V(s_T) instead of pretending the future is worth zero.
+  if (collectTransitions && critic && hasTransition && !env.Done() &&
+      steps >= cfg.maxStepsPerGame) {
+    std::array<float, tetris::kStateSize> tailState{};
+    env.EncodeCriticState(tailState);
+    auto tailT = torch::from_blob(tailState.data(),
+                                  {1, tetris::kStateSize}, torch::kFloat32)
+                     .clone();
+    out[lastTransition].bootstrapValue =
+        (*critic)->forward(tailT).squeeze().item<float>();
   }
 
   epLines = env.game().Lines();
@@ -105,12 +123,12 @@ void playGame(torch_nn::Actor* actor, torch_nn::Critic* critic,
 }
 
 void runLearningWorker(const ModelSet& models, const RolloutConfig& cfg,
-                       int nGames, uint64_t seed, std::vector<Transition>& out,
-                       RolloutStats& stats) {
+                       int nGames, uint64_t seed, int gameIdBase,
+                       std::vector<Transition>& out, RolloutStats& stats) {
   for (int gi = 0; gi < nGames; ++gi) {
     int epLines = 0, epScore = 0, epPieces = 0, epLen = 0;
-    playGame(models.actor, models.critic, cfg, seed, gi, /*collect=*/true, out,
-             epLines, epScore, epPieces, epLen);
+    playGame(models.actor, models.critic, cfg, seed, gameIdBase, gi,
+             /*collect=*/true, out, epLines, epScore, epPieces, epLen);
     stats.games += 1;
     stats.totalLines += epLines;
     stats.totalScore += epScore;
@@ -144,7 +162,7 @@ torch_nn::Actor* sampleHistoricalActor(const HistoricalPool& pool,
 }
 
 void runLeagueWorker(const RolloutConfig& cfg, int nGames, uint64_t seed,
-                     RolloutStats& stats) {
+                     int gameIdBase, RolloutStats& stats) {
   if (!cfg.historicalPool || cfg.historicalPool->empty() || nGames <= 0) return;
   std::mt19937_64 rng(seed);
   std::vector<Transition> discard;
@@ -153,8 +171,8 @@ void runLeagueWorker(const RolloutConfig& cfg, int nGames, uint64_t seed,
     if (!hist) continue;
     (*hist)->eval();
     int epLines = 0, epScore = 0, epPieces = 0, epLen = 0;
-    playGame(hist, nullptr, cfg, seed + 17ULL, gi, /*collect=*/false, discard,
-             epLines, epScore, epPieces, epLen);
+    playGame(hist, nullptr, cfg, seed + 17ULL, gameIdBase, gi,
+             /*collect=*/false, discard, epLines, epScore, epPieces, epLen);
     stats.leagueGames += 1;
     stats.leagueTotalLines += epLines;
     stats.leagueTotalScore += epScore;
@@ -189,8 +207,10 @@ void collectRollout(const ModelSet& models, const RolloutConfig& cfg,
     uint64_t seed = cfg.seed + static_cast<uint64_t>(offset) * 9973ULL +
                     static_cast<uint64_t>(t) * 0x9e3779b97f4a7c15ULL;
     offset += n;
-    workers.emplace_back([&, t, n, seed]() {
-      runLearningWorker(models, cfg, n, seed, parts[t], partStats[t]);
+    int gameIdBase = t * (cfg.gamesPerUpdate + 1);
+    workers.emplace_back([&, t, n, seed, gameIdBase]() {
+      runLearningWorker(models, cfg, n, seed, gameIdBase, parts[t],
+                        partStats[t]);
     });
   }
   for (auto& w : workers) w.join();
@@ -230,8 +250,9 @@ void collectRollout(const ModelSet& models, const RolloutConfig& cfg,
                       static_cast<uint64_t>(loff) * 7919ULL +
                       static_cast<uint64_t>(t) * 0x85ebca6bULL;
       loff += n;
-      leagueWorkers.emplace_back([&, t, n, seed]() {
-        runLeagueWorker(cfg, n, seed, leagueParts[t]);
+      int leagueIdBase = 100000000 + t * (leagueN + 1);
+      leagueWorkers.emplace_back([&, t, n, seed, leagueIdBase]() {
+        runLeagueWorker(cfg, n, seed, leagueIdBase, leagueParts[t]);
       });
     }
     for (auto& w : leagueWorkers) w.join();

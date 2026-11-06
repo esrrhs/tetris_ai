@@ -40,7 +40,10 @@ void assignEpisodeReturns(std::vector<Transition>& tr, float gamma,
     float nextValue = 0.0f;
     bool isFirstInBackward = true;
     while (curr >= 0) {
-      float vNext = isFirstInBackward ? 0.0f : nextValue;
+      // For a real terminal the tail value is 0; for a length-capped episode
+      // the rollout stored V(s_T) as bootstrapValue.
+      float vNext =
+          isFirstInBackward ? tr[curr].bootstrapValue : nextValue;
       float delta = tr[curr].reward + gamma * vNext - tr[curr].value;
       gae = delta + (tr[curr].terminal ? 0.0f : gaeFactor * gae);
       tr[curr].adv = gae;

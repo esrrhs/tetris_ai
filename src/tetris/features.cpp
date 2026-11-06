@@ -1,7 +1,9 @@
 #include "tetris/features.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <cstring>
 #include <set>
 #include <tuple>
 
@@ -9,6 +11,13 @@
 
 namespace tetris {
 namespace {
+
+std::atomic<int> g_stateFeatureMode{static_cast<int>(StateFeatureMode::kRaw)};
+
+// Bounds observed during the original 500-step PPO rollouts
+// (~190 lines / ~11000 score at the cap).
+constexpr float kClampLines = 2.0f;
+constexpr float kClampScore = 1.2f;
 
 bool TryMoveSim(ActivePiece& p, const Board& b, int dx, int dy) {
   int nx = p.x + dx;
@@ -73,6 +82,43 @@ std::vector<Op> BuildPlacementOps(ActivePiece start, int target_rot, int target_
 }
 
 }  // namespace
+
+void SetStateFeatureMode(StateFeatureMode mode) {
+  g_stateFeatureMode.store(static_cast<int>(mode), std::memory_order_relaxed);
+}
+
+StateFeatureMode GetStateFeatureMode() {
+  return static_cast<StateFeatureMode>(
+      g_stateFeatureMode.load(std::memory_order_relaxed));
+}
+
+const char* StateFeatureModeName(StateFeatureMode mode) {
+  switch (mode) {
+    case StateFeatureMode::kRaw:
+      return "raw";
+    case StateFeatureMode::kClamp:
+      return "clamp";
+    case StateFeatureMode::kZero:
+      return "zero";
+  }
+  return "raw";
+}
+
+bool ParseStateFeatureMode(const std::string& s, StateFeatureMode& out) {
+  if (s == "raw") {
+    out = StateFeatureMode::kRaw;
+    return true;
+  }
+  if (s == "clamp") {
+    out = StateFeatureMode::kClamp;
+    return true;
+  }
+  if (s == "zero") {
+    out = StateFeatureMode::kZero;
+    return true;
+  }
+  return false;
+}
 
 BoardMetrics ComputeBoardMetrics(const Board& board) {
   BoardMetrics m;
@@ -164,8 +210,21 @@ void EncodeState(const Game& g, std::array<float, kStateSize>& out,
   out[static_cast<size_t>(i++)] = m.holes / 100.f;
   out[static_cast<size_t>(i++)] = m.bumpiness / 50.f;
   out[static_cast<size_t>(i++)] = m.aggregate_height / 200.f;
-  out[static_cast<size_t>(i++)] = static_cast<float>(g.Lines()) / 100.f;
-  out[static_cast<size_t>(i++)] = static_cast<float>(g.Score()) / 10000.f;
+
+  // Cumulative features: optionally made stationary for long-episode policies.
+  const StateFeatureMode mode = GetStateFeatureMode();
+  if (mode == StateFeatureMode::kRaw) {
+    out[static_cast<size_t>(i++)] = static_cast<float>(g.Lines()) / 100.f;
+    out[static_cast<size_t>(i++)] = static_cast<float>(g.Score()) / 10000.f;
+  } else if (mode == StateFeatureMode::kClamp) {
+    out[static_cast<size_t>(i++)] =
+        std::min(static_cast<float>(g.Lines()) / 100.f, kClampLines);
+    out[static_cast<size_t>(i++)] =
+        std::min(static_cast<float>(g.Score()) / 10000.f, kClampScore);
+  } else {
+    out[static_cast<size_t>(i++)] = 0.f;
+    out[static_cast<size_t>(i++)] = 0.f;
+  }
 
   // Bag remaining counts (7) — imperfect actor leaves zeros.
   if (include_bag) {

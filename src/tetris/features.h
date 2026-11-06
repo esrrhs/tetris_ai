@@ -17,6 +17,7 @@
 
 #include <array>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include "tetris/game.h"
@@ -26,6 +27,22 @@ namespace tetris {
 
 constexpr int kStateSize = 235 + kNextPreview * 7;  // 270
 constexpr int kActionFeatSize = 18;
+
+// The two cumulative state features (lines/100, score/10000) are unbounded.
+// A policy trained on short rollouts only ever sees ~2 / ~1.2 there, while a
+// 10000-piece episode reaches ~40 / ~23. Making them stationary removes that
+// train/eval distribution shift. kRaw keeps the legacy behaviour (default), so
+// existing checkpoints and tests stay bit-for-bit compatible.
+enum class StateFeatureMode {
+  kRaw = 0,    // legacy, unbounded
+  kClamp = 1,  // clamp to the short-rollout range
+  kZero = 2,   // drop them entirely (recommended for long-episode training)
+};
+
+void SetStateFeatureMode(StateFeatureMode mode);
+StateFeatureMode GetStateFeatureMode();
+const char* StateFeatureModeName(StateFeatureMode mode);
+bool ParseStateFeatureMode(const std::string& s, StateFeatureMode& out);
 
 // Board metrics used by both state and action features.
 struct BoardMetrics {

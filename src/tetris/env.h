@@ -36,6 +36,10 @@ struct EnvRewardConfig {
   float wHole = 1.0f;
   float wBump = 0.5f;
   float deathPenalty = -1.0f;
+  // Per-decision reward for staying alive. Default 0 keeps legacy behaviour.
+  // Combined with a long discount horizon it makes "survive" a real objective
+  // instead of an absence of reward between line clears.
+  float survivalBonus = 0.0f;
 };
 
 // Potential φ(board) used by dense shaping.

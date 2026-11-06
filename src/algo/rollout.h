@@ -25,6 +25,10 @@ struct Transition {
   float reward = 0.0f;
   float adv = 0.0f;
   float ret = 0.0f;
+  // V(s_T) for an episode cut off by maxStepsPerGame (not a real terminal).
+  // Without this bootstrap the value target silently assumes 0 after the cap,
+  // which biases the policy towards ending episodes near the cap.
+  float bootstrapValue = 0.0f;
 };
 
 struct RolloutStats {
@@ -63,7 +67,7 @@ struct RolloutConfig {
   int gamesPerUpdate = 64;
   int threads = 2;
   uint64_t seed = 1;
-  int maxStepsPerGame = 500;  // safety cap on agent decisions
+  int maxStepsPerGame = 500;  // episode cap; raise for long-horizon training
 
   // Dense (potential) reward — forwarded to Env.
   tetris::EnvRewardConfig reward{};

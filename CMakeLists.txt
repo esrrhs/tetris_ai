@@ -30,6 +30,7 @@ add_library(tetris_ai_core STATIC
   src/tetris/render.cpp
   src/tetris/features.cpp
   src/tetris/env.cpp
+  src/tetris/heuristic.cpp
 )
 target_include_directories(tetris_ai_core PUBLIC src)
 
@@ -67,6 +68,10 @@ if(TETRIS_AI_TORCH_FOUND)
 
   add_executable(tetris_ai_eval src/eval.cpp)
   target_link_libraries(tetris_ai_eval PRIVATE tetris_ai_rl)
+
+  # DAgger imitation learning from the classical board-heuristic teacher.
+  add_executable(tetris_ai_pretrain src/pretrain.cpp)
+  target_link_libraries(tetris_ai_pretrain PRIVATE tetris_ai_rl)
 endif()
 
 # ---- Tests ----
@@ -89,6 +94,10 @@ gtest_discover_tests(test_game)
 add_executable(test_rl_env tests/test_rl_env.cpp)
 target_link_libraries(test_rl_env PRIVATE tetris_ai_core GTest::gtest_main)
 gtest_discover_tests(test_rl_env)
+
+add_executable(test_heuristic tests/test_heuristic.cpp)
+target_link_libraries(test_heuristic PRIVATE tetris_ai_core GTest::gtest_main)
+gtest_discover_tests(test_heuristic)
 
 if(TETRIS_AI_TORCH_FOUND)
   add_executable(test_rl tests/test_rl.cpp)

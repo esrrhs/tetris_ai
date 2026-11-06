@@ -12,6 +12,7 @@
 #include <string>
 
 #include "algo/eval.h"
+#include "tetris/features.h"
 #include "torch_nn/models.h"
 #include <torch/version.h>
 
@@ -24,6 +25,7 @@ struct Args {
   uint64_t seed = 1;
   int hidden = 128;
   std::string backend = "cpu";
+  std::string stateFeatures = "raw";  // must match training mode
   bool greedy = true;
   bool help = false;
 };
@@ -49,6 +51,7 @@ void parseArgs(int argc, char** argv, Args& a) {
   a.seed = static_cast<uint64_t>(std::atoll(argValue(argc, argv, "--seed", "1")));
   a.hidden = std::atoi(argValue(argc, argv, "--hidden", "128"));
   a.backend = argValue(argc, argv, "--backend", "cpu");
+  a.stateFeatures = argValue(argc, argv, "--state-features", "raw");
   if (hasFlag(argc, argv, "--stochastic")) a.greedy = false;
   if (hasFlag(argc, argv, "--greedy")) a.greedy = true;
 }
@@ -60,8 +63,10 @@ void printHelp() {
       << "Usage:\n"
       << "  tetris_ai_eval --ckpt DIR [--max-pieces N] [--games G] [--seed S]\n"
       << "                [--hidden H] [--backend cpu|cuda|mps] [--greedy|--stochastic]\n"
+      << "                [--state-features raw|clamp|zero]\n"
       << "\n"
-      << "Defaults: --max-pieces 1000. Typical: 1000 or 10000.\n"
+      << "Defaults: --max-pieces 1000, --state-features raw (legacy checkpoints).\n"
+      << "Use the same --state-features value that training used.\n"
       << "Stop when pieces_placed >= N OR spawn-fail death (Done).\n"
       << "Headline: score / lines. Also: pieces_placed, survived, death_piece.\n"
       << "\n"
@@ -85,6 +90,15 @@ int main(int argc, char** argv) {
   }
   if (args.maxPieces < 1) args.maxPieces = 1;
   if (args.games < 1) args.games = 1;
+
+  tetris::StateFeatureMode sfMode{};
+  if (!tetris::ParseStateFeatureMode(args.stateFeatures, sfMode)) {
+    std::fprintf(stderr,
+                 "Invalid --state-features '%s'. Use raw | clamp | zero.\n",
+                 args.stateFeatures.c_str());
+    return 1;
+  }
+  tetris::SetStateFeatureMode(sfMode);
 
   torch::Device device = torch::kCPU;
   std::string deviceName = "CPU";
@@ -139,6 +153,7 @@ int main(int argc, char** argv) {
             << " hidden=" << args.hidden
             << " greedy=" << (args.greedy ? "true" : "false")
             << " max_pieces=" << args.maxPieces << " games=" << args.games
+            << " state_features=" << tetris::StateFeatureModeName(sfMode)
             << "\n";
 
   // Eval inference on CPU for the shared evaluateGame path (matches rollout).
