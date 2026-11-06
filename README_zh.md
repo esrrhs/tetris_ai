@@ -214,6 +214,22 @@ cmake --build build -j --target tetris_ai_eval
 
 CMake（需 LibTorch）：额外目标 `tetris_ai_eval`。
 
+## 网页演示服务（step 驱动）
+
+前端**按 step 请求驱动**：一次 `POST /api/game/step` = 一次落点决策 + 一块方块的完整运动帧；
+浏览器用 Canvas 逐帧播放旋转 → 平移 → 逐行下落 → 锁定 → 消行闪白，不自己模拟规则。
+`src/server/` 是零依赖的 C++ HTTP/JSON 层（Windows 用 Winsock），链接 LibTorch 时直接驱动
+训练好的 Actor，未链接 LibTorch 时自动回退到启发式教师；`server/static/` 是不需要构建工具的前端。
+
+```bash
+cmake --build build_msvc --target tetris_ai_server -j 8   # 或 build_gcc（无 Torch）
+./build_msvc/tetris_ai_server --port 8080 --model ckpt_bc_ppo --hidden 256 --state-features zero
+# 浏览器打开 http://127.0.0.1:8080
+python server/tests/api_test.py                            # 接口回归
+```
+
+接口契约见 [`server/API.md`](server/API.md)，构建与玩法见 [`server/README.md`](server/README.md)。
+
 ## 布局
 
 ```
@@ -227,7 +243,9 @@ tetris_ai/
   src/train.cpp   # PPO training entry
   src/pretrain.cpp# DAgger imitation entry
   src/eval.cpp    # external eval entry
+  src/server/     # HTTP service: main/http/session/policy + json.h
   src/demo/       # ASCII demo
+  server/         # static/ frontend, API.md, README.md, tests/api_test.py
   tests/          # gtest
 ```
 

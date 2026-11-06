@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tetris AI · Step 驱动的方块演示</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="brand">
+        <span class="logo-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <div class="brand-text">
+          <h1>TETRIS AI <span>Step 驱动演示</span></h1>
+          <p>一次请求 = 一次决策 = 一块方块的完整运动</p>
+        </div>
+      </div>
+      <div class="header-meta">
+        <span class="badge" id="backendBadge">连接中</span>
+        <span class="badge badge-ghost" id="modelBadge">模型检测中</span>
+        <button class="btn btn-ghost" id="btnRules">规则与算法</button>
+        <button class="btn btn-primary" id="btnNewTop">新开一局</button>
+      </div>
+    </header>
+
+    <main class="main">
+      <section class="stage">
+        <div class="stage-inner">
+          <div class="board-frame">
+            <canvas id="board" width="320" height="640" aria-label="俄罗斯方块棋盘"></canvas>
+            <div class="board-overlay hidden" id="boardOverlay">
+              <div class="overlay-card">
+                <div class="overlay-title" id="overlayTitle">游戏结束</div>
+                <div class="overlay-sub" id="overlaySub"></div>
+                <button class="btn btn-primary" id="btnOverlayRestart">再来一局</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="stage-caption">
+            <span class="live-dot" id="liveDot"></span>
+            <span id="statusLine">正在连接后端服务…</span>
+            <span class="stage-caption-right" id="sessionLabel"></span>
+          </div>
+        </div>
+      </section>
+
+      <aside class="sidebar">
+        <section class="card next-card">
+          <div class="card-head"><h2>NEXT</h2><span class="card-sub">下 5 块预览</span></div>
+          <div class="next-list" id="nextList"></div>
+        </section>
+
+        <section class="card stats-card">
+          <div class="card-head"><h2>局内数据</h2><span class="card-sub" id="stepLabel">STEP 0</span></div>
+          <div class="stat-grid">
+            <div class="stat"><span>得分</span><strong id="statScore">0</strong></div>
+            <div class="stat"><span>消行</span><strong id="statLines">0</strong></div>
+            <div class="stat"><span>落块</span><strong id="statPieces">0</strong></div>
+            <div class="stat"><span>连击</span><strong id="statCombo">0</strong></div>
+          </div>
+          <div class="metric-row">
+            <div><span>空洞</span><b id="metricHoles">0</b></div>
+            <div><span>起伏</span><b id="metricBump">0</b></div>
+            <div><span>最高</span><b id="metricHeight">0</b></div>
+          </div>
+        </section>
+
+        <section class="card decision-card">
+          <div class="card-head"><h2>本次决策</h2><span class="card-sub" id="decisionSource">—</span></div>
+          <div class="decision-main" id="decisionMain">等待第一次推进</div>
+          <div class="candidates" id="candidates"></div>
+        </section>
+
+        <section class="card control-card">
+          <div class="card-head"><h2>控制台</h2><span class="card-sub">按 step 驱动</span></div>
+          <div class="btn-row">
+            <button class="btn btn-primary" id="btnStep">单步推进</button>
+            <button class="btn btn-accent" id="btnAuto">自动播放</button>
+          </div>
+          <div class="btn-row">
+            <button class="btn" id="btnBurst">快进 10 步</button>
+            <button class="btn" id="btnNew">重置本局</button>
+          </div>
+          <div class="field">
+            <label for="speed">动画速度 <span id="speedLabel">中</span></label>
+            <input type="range" id="speed" min="0" max="100" value="55">
+          </div>
+          <div class="field">
+            <label for="mode">决策后端</label>
+            <select id="mode">
+              <option value="model">训练好的神经网络</option>
+              <option value="heuristic">启发式教师</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="seed">随机种子 <span class="hint">0 = 每次随机</span></label>
+            <input type="number" id="seed" value="0" min="0">
+          </div>
+          <label class="switch-row">
+            <input type="checkbox" id="manualToggle">
+            <span>手动模式（键盘逐格驱动）</span>
+          </label>
+          <div class="manual-help hidden" id="manualHelp">
+            ← → 平移 · ↑ 旋转 · ↓ 下移一格 · 空格 直落 · Z 反转
+          </div>
+        </section>
+
+        <section class="card log-card">
+          <div class="card-head"><h2>事件</h2><span class="card-sub">最近 10 条</span></div>
+          <div class="event-log" id="eventLog"></div>
+        </section>
+      </aside>
+    </main>
+  </div>
+
+  <div class="toast hidden" id="toast"></div>
+
+  <div class="modal hidden" id="rulesModal">
+    <div class="modal-card">
+      <div class="modal-head"><h2>规则与算法</h2><button class="btn btn-ghost" id="btnRulesClose">关闭</button></div>
+      <div class="modal-body">
+        <p><b>驱动方式</b>：前端每次向 <code>POST /api/game/step</code> 请求一步，服务端让策略在该盘面的所有合法落点中挑一个，返回落点决策与这个方块从出生、旋转、平移到直落锁定的完整帧序列。前端按帧绘制，因此一次请求就是一次完整的方块表现；<code>/api/game/tick</code> 则用于手动模式逐格推进。</p>
+        <p><b>决策后端</b>：默认使用 DAgger 行为克隆 + 长局 PPO 微调得到的 Actor（270 维状态、18 维落点特征），它会给每个候选落点打分，侧栏展示 softmax 概率最高的 6 个。切换到「启发式教师」则使用 Dellacherie / El-Tetris 盘面评估加一步生成失败前瞻。</p>
+        <p><b>环境</b>：10×20 可见区、7-bag 出块、下 5 块公开预览，动作是「旋转 / 平移后直落」的落点选择；消行计分为 40 / 100 / 300 / 1200 并有连击加成。死亡条件是新方块在出生点碰撞。</p>
+        <p><b>会话</b>：浏览器用 <code>X-Session-Id</code> 隔离牌局，刷新页面会回到同一局；点「新开一局」用同一会话重新发牌。</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

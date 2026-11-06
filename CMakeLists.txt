@@ -74,6 +74,30 @@ if(TETRIS_AI_TORCH_FOUND)
   target_link_libraries(tetris_ai_pretrain PRIVATE tetris_ai_rl)
 endif()
 
+# ---- Web service: step-driven HTTP API + static Tetris frontend ----
+# Zero extra dependencies (own socket HTTP layer + own JSON). Links the RL
+# stack when LibTorch is available so the UI can drive the trained Actor;
+# otherwise it still runs with the classical heuristic teacher.
+add_executable(tetris_ai_server
+  src/server/main.cpp
+  src/server/http.cpp
+  src/server/policy.cpp
+  src/server/session.cpp
+)
+target_include_directories(tetris_ai_server PRIVATE src)
+target_compile_definitions(tetris_ai_server PRIVATE
+  TETRIS_AI_STATIC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/server/static"
+)
+if(TETRIS_AI_TORCH_FOUND)
+  target_link_libraries(tetris_ai_server PRIVATE tetris_ai_rl)
+  target_compile_definitions(tetris_ai_server PRIVATE TETRIS_AI_SERVER_WITH_TORCH=1)
+else()
+  target_link_libraries(tetris_ai_server PRIVATE tetris_ai_core)
+endif()
+if(WIN32)
+  target_link_libraries(tetris_ai_server PRIVATE ws2_32)
+endif()
+
 # ---- Tests ----
 enable_testing()
 include(FetchContent)

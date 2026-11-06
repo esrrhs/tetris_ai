@@ -211,6 +211,25 @@ Ends with `summary mean_score=... mean_lines=... mean_pieces=...`.
 
 CMake (needs LibTorch): extra target `tetris_ai_eval`.
 
+## Step-driven web demo
+
+The browser drives the game one request at a time: `POST /api/game/step` performs
+one placement decision and returns the full frame sequence of that piece, which
+the Canvas frontend replays (rotate → shift → row-by-row drop → lock → line flash).
+`src/server/` is a zero-dependency C++ HTTP/JSON layer (Winsock on Windows);
+with LibTorch it runs the trained Actor, otherwise it falls back to the heuristic
+teacher. `server/static/` is a plain HTML/CSS/JS frontend with no build step.
+
+```bash
+cmake --build build_msvc --target tetris_ai_server -j 8   # or build_gcc (no Torch)
+./build_msvc/tetris_ai_server --port 8080 --model ckpt_bc_ppo --hidden 256 --state-features zero
+# open http://127.0.0.1:8080
+python server/tests/api_test.py
+```
+
+See [`server/API.md`](server/API.md) for the contract and [`server/README.md`](server/README.md)
+for build/run details.
+
 ## Layout
 
 ```
@@ -218,12 +237,15 @@ tetris_ai/
   CMakeLists.txt
   README.md
   README_zh.md
-  src/tetris/     # core + features + env
+  src/tetris/     # core + features + env + heuristic teacher
   src/algo/       # PPO GAE / rollout (Torch)
   src/torch_nn/   # Actor Critic PPOLearner tensor_bridge
   src/train.cpp   # training entry
+  src/pretrain.cpp# DAgger imitation entry
   src/eval.cpp    # external eval entry
+  src/server/     # HTTP service: main/http/session/policy + json.h
   src/demo/       # ASCII demo
+  server/         # static/ frontend, API.md, README.md, tests/api_test.py
   tests/          # gtest
 ```
 
