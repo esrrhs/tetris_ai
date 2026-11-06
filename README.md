@@ -188,6 +188,22 @@ The default rollout cap is `maxStepsPerGame = 500`. A policy optimised only to
 `--student-prob-start` / `--student-prob-end` `--eval-pieces` `--eval-games`
 `--out` `--resume`.
 
+### Bundled weights
+
+Two ready-to-load checkpoints are committed to the repo, both trained with
+`hidden=256` and `state-features=zero`:
+
+| Directory | Origin | Long-game result |
+|---|---|---|
+| `ckpt_bc/` | 20 DAgger iterations | 50/50 survive 10000 pieces |
+| `ckpt_bc_ppo/` | long-horizon PPO fine-tune (**final**) | 10/10 survive 100000 pieces |
+
+Each contains `actor.pt` / `critic.pt` / `meta.txt`. Optimizer state, smoke
+runs and the old PPO checkpoints stay ignored by `.gitignore`. Evaluation and
+the web server both need `--hidden 256 --state-features zero` (the server's
+defaults); a mismatch fails to load and silently falls back to the heuristic
+teacher. The server auto-detects `ckpt_bc_ppo` on startup.
+
 CMake: `TETRIS_AI_WITH_TORCH` (ON when Torch is found) builds `tetris_ai_rl`, `tetris_ai_train`, `tetris_ai_eval`, and optional `test_rl`. Without Torch, the core plus `test_game` / `test_rl_env` still build.
 
 ### External eval (built-in Env client)

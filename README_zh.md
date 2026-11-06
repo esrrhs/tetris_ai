@@ -152,6 +152,17 @@ CLI：`--dense-reward` / `--no-dense-reward`，`--dense-coef`，`--line-coef`，
 
 CLI：`--iters` `--games` `--steps` `--threads` `--hidden` `--epochs` `--mb` `--lr` `--seed` `--backend` `--state-features` `--student-prob-start` / `--student-prob-end` `--eval-pieces` `--eval-games` `--out` `--resume`。
 
+### 随仓库附带的权重
+
+仓库直接包含两份可加载的 checkpoint，训练时均为 `hidden=256`、`state-features=zero`：
+
+| 目录 | 来源 | 长局表现 |
+|---|---|---|
+| `ckpt_bc/` | DAgger 行为克隆 20 轮 | 10000 块 × 50 局全存活 |
+| `ckpt_bc_ppo/` | 在其上做长局 PPO 微调（**定稿**） | 100000 块 × 10 局零死亡 |
+
+每份含 `actor.pt` / `critic.pt` / `meta.txt`；优化器状态 `optim.pt`、smoke 与旧 PPO 等实验产物仍由 `.gitignore` 排除。评估和网页服务都必须带 `--hidden 256 --state-features zero`（服务默认值），写错会加载失败并回退到启发式教师。网页服务默认自动探测 `ckpt_bc_ppo`：`./build_msvc/tetris_ai_server --port 8080`。
+
 ### 历史联赛池（单智能体）
 
 PerfectDou 风格的 `HistoricalPool`：`recent`（环形）+ `archive`（几何 / 百次晋升）。

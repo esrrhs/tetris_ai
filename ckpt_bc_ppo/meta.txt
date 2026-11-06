@@ -1,0 +1,8 @@
+update 12
+seed 1
+lr 0.0001
+max_steps 4000
+state_features zero
+survival_bonus 0.01
+dense_reward 1
+dense_coef 0.08
