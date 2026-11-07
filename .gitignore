@@ -1,6 +1,7 @@
 /build/
 /build-*/
 /build_*/
+/server/host/build/
 cmake-build-*/
 .workbuddy/
 .idea/
@@ -21,6 +22,8 @@ ckpt_*/
 !ckpt_bc/critic.pt
 !ckpt_bc_ppo/actor.pt
 !ckpt_bc_ppo/critic.pt
+# LibTorch-free export used by the production web service.
+!ckpt_bc_ppo/actor.bin
 
 # Temp / scratch
 /tmp/

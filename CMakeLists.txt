@@ -83,6 +83,7 @@ add_executable(tetris_ai_server
   src/server/http.cpp
   src/server/policy.cpp
   src/server/session.cpp
+  src/server/lite_actor.cpp
 )
 target_include_directories(tetris_ai_server PRIVATE src)
 target_compile_definitions(tetris_ai_server PRIVATE
@@ -99,6 +100,11 @@ if(WIN32)
 endif()
 
 # ---- Tests ----
+# The deploy box has no GitHub access; configure with
+# -DTETRIS_AI_BUILD_TESTS=OFF there to keep the build fully offline.
+option(TETRIS_AI_BUILD_TESTS
+       "Build unit tests (FetchContent pulls googletest from GitHub)" ON)
+if(TETRIS_AI_BUILD_TESTS)
 enable_testing()
 include(FetchContent)
 FetchContent_Declare(
@@ -128,3 +134,4 @@ if(TETRIS_AI_TORCH_FOUND)
   target_link_libraries(test_rl PRIVATE tetris_ai_rl GTest::gtest_main)
   gtest_discover_tests(test_rl)
 endif()
+endif()  # TETRIS_AI_BUILD_TESTS

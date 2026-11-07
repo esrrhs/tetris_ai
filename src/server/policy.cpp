@@ -16,6 +16,8 @@
 #include <torch/torch.h>
 
 #include "torch_nn/models.h"
+#else
+#include "server/lite_actor.h"
 #endif
 
 namespace tsrv {
@@ -29,15 +31,62 @@ struct ModelPolicy::Impl {
   std::string dir;
 };
 #else
-struct ModelPolicy::Impl {};
+// Same public shape as the LibTorch backend, but the Actor is evaluated by a
+// small C++ MLP over actor.bin (no PyTorch runtime on the deploy box).
+struct ModelPolicy::Impl {
+  LiteActor actor;
+  int hidden = 256;
+  std::string stateFeatures = "zero";
+  std::string dir;
+};
 #endif
 
 bool ModelPolicy::load(const Options& opt, std::string& message) {
 #ifndef TETRIS_AI_SERVER_WITH_TORCH
-  (void)opt;
-  label_ = "heuristic";
-  message = "本构建未链接 LibTorch，模型后端不可用（启发式教师可用）";
-  return false;
+  if (opt.dir.empty()) {
+    message = "未指定 --model 目录";
+    return false;
+  }
+  const std::string weight =
+      (std::filesystem::path(opt.dir) / "actor.bin").string();
+  if (!std::filesystem::exists(weight)) {
+    label_ = "heuristic";
+    message = "找不到轻量权重 " + weight +
+              "（用 server/tools/export_actor.py 从 actor.pt 导出）";
+    return false;
+  }
+
+  // Must match the encoding the checkpoint was trained with (zero), otherwise
+  // the policy sees out-of-distribution features and dies quickly.
+  tetris::StateFeatureMode sf = tetris::StateFeatureMode::kZero;
+  if (!tetris::ParseStateFeatureMode(opt.stateFeatures, sf)) {
+    message = "无效的 --state-features: " + opt.stateFeatures;
+    return false;
+  }
+  tetris::SetStateFeatureMode(sf);
+
+  auto impl = std::make_shared<Impl>();
+  std::string detail;
+  if (!impl->actor.load(weight, detail)) {
+    label_ = "heuristic";
+    message = detail;
+    return false;
+  }
+  if (impl->actor.hidden() != opt.hidden) {
+    label_ = "heuristic";
+    message = "权重 hidden=" + std::to_string(impl->actor.hidden()) +
+              " 与 --hidden " + std::to_string(opt.hidden) + " 不一致";
+    return false;
+  }
+  impl->hidden = opt.hidden;
+  impl->stateFeatures = opt.stateFeatures;
+  impl->dir = opt.dir;
+  impl_ = impl;
+  available_ = true;
+  backendName_ = "cpu (lite)";
+  label_ = "model:" + std::filesystem::path(opt.dir).filename().string();
+  message = detail + " (state-features=" + opt.stateFeatures + ")";
+  return true;
 #else
   if (opt.dir.empty()) {
     message = "未指定 --model 目录";
@@ -101,11 +150,79 @@ int ModelPolicy::choose(const tetris::Env& env,
                         const std::vector<tetris::LegalOption>& options,
                         bool greedy, Decision& out) const {
 #ifndef TETRIS_AI_SERVER_WITH_TORCH
-  (void)env;
-  (void)options;
-  (void)greedy;
-  (void)out;
-  return -1;
+  if (!available_ || !impl_ || !impl_->actor.loaded() || options.empty())
+    return -1;
+  const int n = static_cast<int>(options.size());
+  if (n > 64) return -1;  // matches torch_nn::kMaxActions
+
+  auto t0 = std::chrono::steady_clock::now();
+  std::array<float, tetris::kStateSize> state{};
+  env.EncodeActorState(state);
+  std::vector<float> actFeat(static_cast<size_t>(n) *
+                             tetris::kActionFeatSize);
+  for (int a = 0; a < n; ++a) {
+    std::memcpy(
+        actFeat.data() + static_cast<size_t>(a) * tetris::kActionFeatSize,
+        options[static_cast<size_t>(a)].feature.data(),
+        tetris::kActionFeatSize * sizeof(float));
+  }
+  std::vector<float> vals(static_cast<size_t>(n));
+  impl_->actor.scoreBatch(state, actFeat.data(), n, vals.data());
+
+  // From here on identical to the LibTorch path: softmax probabilities for
+  // the UI, greedy/sampled choice, and the ranked candidate list.
+  float mx = *std::max_element(vals.begin(), vals.end());
+  std::vector<double> prob(static_cast<size_t>(n));
+  double sum = 0.0;
+  for (int a = 0; a < n; ++a) {
+    prob[static_cast<size_t>(a)] =
+        std::exp(static_cast<double>(vals[static_cast<size_t>(a)] - mx));
+    sum += prob[static_cast<size_t>(a)];
+  }
+  for (double& p : prob) p = 100.0 * p / sum;
+
+  int chosen = 0;
+  if (greedy) {
+    chosen = static_cast<int>(
+        std::max_element(vals.begin(), vals.end()) - vals.begin());
+  } else {
+    static thread_local std::mt19937 rng{std::random_device{}()};
+    double u = std::uniform_real_distribution<double>(0.0, 100.0)(rng);
+    double cum = 0.0;
+    chosen = n - 1;
+    for (int a = 0; a < n; ++a) {
+      cum += prob[static_cast<size_t>(a)];
+      if (u <= cum) {
+        chosen = a;
+        break;
+      }
+    }
+  }
+
+  std::vector<int> order(static_cast<size_t>(n));
+  std::iota(order.begin(), order.end(), 0);
+  std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
+    return prob[static_cast<size_t>(a)] > prob[static_cast<size_t>(b)];
+  });
+  out.source = "model";
+  out.optionId = chosen;
+  out.timeMs = std::chrono::duration<double, std::milli>(
+                   std::chrono::steady_clock::now() - t0)
+                   .count();
+  out.candidates.clear();
+  for (int k = 0; k < std::min<int>(6, n); ++k) {
+    int a = order[static_cast<size_t>(k)];
+    const auto& o = options[static_cast<size_t>(a)];
+    Candidate c;
+    c.rot = o.rot;
+    c.x = o.x;
+    c.landingY = o.landing_y;
+    c.linesCleared = o.lines_cleared;
+    c.probability = prob[static_cast<size_t>(a)];
+    c.score = vals[static_cast<size_t>(a)];
+    out.candidates.push_back(c);
+  }
+  return chosen;
 #else
   if (!available_ || !impl_ || !impl_->actor || options.empty()) return -1;
   const int n = static_cast<int>(options.size());
@@ -199,13 +316,12 @@ Json ModelPolicy::describe() const {
   j.set("available", Json::boolean(available_));
   j.set("label", Json::str(label_));
   j.set("backend", Json::str(backendName_));
-#ifdef TETRIS_AI_SERVER_WITH_TORCH
+  // Both backends keep these fields so /api/status has a stable shape.
   if (impl_) {
     j.set("checkpoint", Json::str(impl_->dir));
     j.set("hidden", Json::integer(impl_->hidden));
     j.set("stateFeatures", Json::str(impl_->stateFeatures));
   }
-#endif
   return j;
 }
 

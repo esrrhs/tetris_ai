@@ -1,11 +1,15 @@
 # 网页服务接口契约
 
-`server/` 的对外协议，分层参考同级目录 `doudizhu_ai/server`：**引擎与推理留在 C++，
-HTTP 层只做会话、路由与状态 DTO**。区别在于斗地主用 Lua 做编排，这里因为要保证
-Windows / MinGW / MSVC 都能零依赖构建，HTTP 与 JSON 是 C++ 自带的极简实现。
+`server/` 的对外协议，分层与同级目录 `doudizhu_ai/server` 一致：**引擎与推理留在 C++，
+HTTP 层只做会话、路由与状态 DTO**。线上由 fakelua 提供 HTTP server 与 JSON，Lua 负责
+路由 / 会话 / 参数编排，C++ 薄宿主注册 `tetris.*` 原生函数；另保留一套零依赖 C++ server
+供 Windows / MinGW / MSVC 使用。两套共用同一份 `session.cpp` 状态 DTO，契约完全相同。
 
-- 实现：`src/server/`（`main.cpp` 路由、`http.cpp` 收发、`session.cpp` 会话与状态、
-  `policy.cpp` 决策后端）
+- 线上实现：`host/main.cpp`（原生函数 + 生命周期）、`lua/main.lua`（init/update/fini）、
+  `lua/http_server.lua`（路由 / CORS / 静态资源）、`lua/game.lua`（会话元数据 / 回收）
+- 引擎与 DTO：`src/server/session.cpp`、`src/server/policy.cpp`、
+  `src/server/lite_actor.cpp`（`actor.bin` 的零依赖 MLP 推理）
+- 零依赖回退：`src/server/http.cpp` + `src/server/main.cpp`
 - 前端：`static/`（纯 HTML/CSS/Canvas，不依赖构建工具）
 - 用例：`tests/api_test.py`
 - 会话：`X-Session-Id` 头，缺失或非法时服务端现造并通过响应头回传；同一浏览器固定一个 id

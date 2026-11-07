@@ -194,7 +194,9 @@ def run(base):
           repr(bad_json)[:120])
 
     status, _, _ = request(base, "GET", "/%2e%2e/CMakeLists.txt")
-    check("path traversal rejected", status == 404, str(status))
+    # A direct hit on the service is rejected by serve_static with 404, while
+    # nginx terminates %2e%2e during URI parsing with 400. Both mean rejected.
+    check("path traversal rejected", status in (400, 404), str(status))
     status, _, body = request(base, "GET", "/api/nope")
     check("unknown endpoint 404", status == 404, str(status))
     status, _, _ = request(base, "POST", "/api/game/state", body={}, sid=sid)

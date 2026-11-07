@@ -227,19 +227,30 @@ CMake（需 LibTorch）：额外目标 `tetris_ai_eval`。
 
 ## 网页演示服务（step 驱动）
 
+线上：<https://tetris.esrrhs.xyz>。
+
 前端**按 step 请求驱动**：一次 `POST /api/game/step` = 一次落点决策 + 一块方块的完整运动帧；
 浏览器用 Canvas 逐帧播放旋转 → 平移 → 逐行下落 → 锁定 → 消行闪白，不自己模拟规则。
-`src/server/` 是零依赖的 C++ HTTP/JSON 层（Windows 用 Winsock），链接 LibTorch 时直接驱动
-训练好的 Actor，未链接 LibTorch 时自动回退到启发式教师；`server/static/` 是不需要构建工具的前端。
+服务端分层与 `doudizhu_ai/server` 一致：**规则与神经网络推理留在 C++，Lua（fakelua）只做
+HTTP 路由、会话与参数编排**。`server/host/` 是薄宿主，`server/lua/` 是生命周期 / 路由 / 会话，
+`server/static/` 是不需要构建工具的前端；另保留 `src/server/` 的零依赖 C++ server 供
+Windows / MinGW 使用，两套共用同一份状态 DTO 与 HTTP 契约。
+
+部署机没有 LibTorch，权重由 `server/tools/export_actor.py` 从 `ckpt_bc_ppo/actor.pt`
+导出为 `actor.bin`，由 `src/server/lite_actor.cpp` 做零依赖 MLP 推理 —— 线上跑的就是
+「10 万块 × 10 局零死亡」那份神经网络，不是启发式教师。
 
 ```bash
-cmake --build build_msvc --target tetris_ai_server -j 8   # 或 build_gcc（无 Torch）
-./build_msvc/tetris_ai_server --port 8080 --model ckpt_bc_ppo --hidden 256 --state-features zero
+cd server
+cmake -S host -B host/build -DCMAKE_BUILD_TYPE=Release -DFAKELUA_PREFIX=/usr/local
+cmake --build host/build -j2
+TETRIS_PORT=8080 LD_LIBRARY_PATH=/usr/local/lib ./host/build/tetris_server lua
 # 浏览器打开 http://127.0.0.1:8080
-python server/tests/api_test.py                            # 接口回归
+python3 server/tests/api_test.py --base-url http://127.0.0.1:8080   # 36 项接口回归
 ```
 
-接口契约见 [`server/API.md`](server/API.md)，构建与玩法见 [`server/README.md`](server/README.md)。
+接口契约见 [`server/API.md`](server/API.md)，构建、自检与线上部署（Nginx + systemd + rsync）
+见 [`server/README.md`](server/README.md)。
 
 ## 布局
 
@@ -254,9 +265,11 @@ tetris_ai/
   src/train.cpp   # PPO training entry
   src/pretrain.cpp# DAgger imitation entry
   src/eval.cpp    # external eval entry
-  src/server/     # HTTP service: main/http/session/policy + json.h
+  src/server/     # session/DTO, policy + lite_actor; legacy zero-dep HTTP (main/http)
   src/demo/       # ASCII demo
-  server/         # static/ frontend, API.md, README.md, tests/api_test.py
+  server/host/    # fakelua C++ host (production)
+  server/lua/     # lifecycle, HTTP routing, session metadata
+  server/         # static/ frontend, tools/export_actor.py, API.md, README.md, tests/
   tests/          # gtest
 ```
 

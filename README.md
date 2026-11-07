@@ -229,22 +229,34 @@ CMake (needs LibTorch): extra target `tetris_ai_eval`.
 
 ## Step-driven web demo
 
+Live at <https://tetris.esrrhs.xyz>.
+
 The browser drives the game one request at a time: `POST /api/game/step` performs
 one placement decision and returns the full frame sequence of that piece, which
 the Canvas frontend replays (rotate → shift → row-by-row drop → lock → line flash).
-`src/server/` is a zero-dependency C++ HTTP/JSON layer (Winsock on Windows);
-with LibTorch it runs the trained Actor, otherwise it falls back to the heuristic
-teacher. `server/static/` is a plain HTML/CSS/JS frontend with no build step.
+The layering mirrors `doudizhu_ai/server`: **rules and neural inference stay in C++,
+Lua (fakelua) only does HTTP routing, sessions and argument shaping**.
+`server/host/` is a thin C++ host registering `tetris.*` native functions;
+`server/lua/` holds lifecycle / routing / sessions; `server/static/` is a plain
+HTML/CSS/JS frontend with no build step. A zero-dependency C++ server (`src/server/`)
+is kept for Windows / MinGW, sharing the same state DTO and HTTP contract.
+
+The deploy box has no LibTorch, so `server/tools/export_actor.py` exports
+`ckpt_bc_ppo/actor.pt` to `actor.bin`, evaluated by the dependency-free MLP in
+`src/server/lite_actor.cpp`. Production therefore runs the real trained Actor
+(10/10 survival over 100000 pieces), not the heuristic teacher.
 
 ```bash
-cmake --build build_msvc --target tetris_ai_server -j 8   # or build_gcc (no Torch)
-./build_msvc/tetris_ai_server --port 8080 --model ckpt_bc_ppo --hidden 256 --state-features zero
+cd server
+cmake -S host -B host/build -DCMAKE_BUILD_TYPE=Release -DFAKELUA_PREFIX=/usr/local
+cmake --build host/build -j2
+TETRIS_PORT=8080 LD_LIBRARY_PATH=/usr/local/lib ./host/build/tetris_server lua
 # open http://127.0.0.1:8080
-python server/tests/api_test.py
+python3 server/tests/api_test.py --base-url http://127.0.0.1:8080   # 36 contract cases
 ```
 
 See [`server/API.md`](server/API.md) for the contract and [`server/README.md`](server/README.md)
-for build/run details.
+for build, smoke check and production deployment (Nginx + systemd + rsync).
 
 ## Layout
 
@@ -259,9 +271,11 @@ tetris_ai/
   src/train.cpp   # training entry
   src/pretrain.cpp# DAgger imitation entry
   src/eval.cpp    # external eval entry
-  src/server/     # HTTP service: main/http/session/policy + json.h
+  src/server/     # session/DTO, policy + lite_actor; legacy zero-dep HTTP (main/http)
   src/demo/       # ASCII demo
-  server/         # static/ frontend, API.md, README.md, tests/api_test.py
+  server/host/    # fakelua C++ host (production)
+  server/lua/     # lifecycle, HTTP routing, session metadata
+  server/         # static/ frontend, tools/export_actor.py, API.md, README.md, tests/
   tests/          # gtest
 ```
 

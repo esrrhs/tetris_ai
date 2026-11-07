@@ -155,7 +155,13 @@ std::string autoModelDir() {
       "ckpt_bc_ppo", "ckpt_bc", "../ckpt_bc_ppo", "../ckpt_bc",
       "server/ckpt_bc_ppo", "server/ckpt_bc"};
   for (const auto& d : candidates) {
+#ifdef TETRIS_AI_SERVER_WITH_TORCH
     if (fs::exists(fs::path(d) / "actor.pt")) return d;
+#else
+    // Offline deployment: actor.bin is the LibTorch-free export of the same
+    // weights (see server/tools/export_actor.py).
+    if (fs::exists(fs::path(d) / "actor.bin")) return d;
+#endif
   }
   return {};
 }
