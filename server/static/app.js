@@ -34,6 +34,9 @@
 
   let current = null;
   let auto = false;
+  // Opening the page starts the policy immediately; `?auto=0` opts out for
+  // stepping / manual play. Pausing the button turns this off too.
+  let autoByDefault = new URLSearchParams(window.location.search).get("auto") !== "0";
   let busy = false;
   let manual = false;
   let epoch = 0;
@@ -442,6 +445,7 @@
     stopAuto();
     ++epoch;
     setBusy(true);
+    let ok = false;
     const seed = Number($("seed").value) || 0;
     const mode = $("mode").value;
     try {
@@ -456,10 +460,13 @@
       renderState(dto);
       addLog(dto, 0);
       $("statusLine").textContent = `新局已开始 · ${dto.backend === "model" ? "神经网络" : "启发式教师"} · seed ${dto.seed}`;
+      ok = true;
     } catch (e) {
       toast("新局失败：" + e.message);
     } finally {
       setBusy(false);
+      // Keep watching after "play again" / mode change without another click.
+      if (ok && autoByDefault && !manual) startAuto();
     }
   }
 
@@ -472,14 +479,19 @@
     $("btnBurst").disabled = v;
     $("statusLine").textContent = v
       ? "手动模式：← → 平移 · ↑ 旋转 · ↓ 下移 · 空格 直落 · Z 反转"
-      : (current ? `STEP ${current.step} · 按「单步推进」或「自动播放」驱动` : "已连接");
+      : (autoByDefault ? "自动运行中 · 点「暂停播放」可暂停"
+                       : (current ? `STEP ${current.step} · 按「单步推进」或「自动播放」驱动` : "已连接"));
+    if (!v && autoByDefault) startAuto();
   }
 
   // ---------- bindings ----------
   function bind() {
     $("btnStep").addEventListener("click", () => stepOnce(1));
     $("btnBurst").addEventListener("click", () => stepOnce(10));
-    $("btnAuto").addEventListener("click", () => auto ? stopAuto() : startAuto());
+    $("btnAuto").addEventListener("click", () => {
+      if (auto) { autoByDefault = false; stopAuto(); }
+      else { autoByDefault = true; startAuto(); }
+    });
     $("btnNew").addEventListener("click", newGame);
     $("btnNewTop").addEventListener("click", newGame);
     $("btnOverlayRestart").addEventListener("click", newGame);
@@ -505,6 +517,8 @@
     drawBase(null);
     bind();
     speedLabel();
+    // Browsers may restore a previously checked manual-mode box on reload.
+    if ($("manualToggle").checked) setManual(true);
     await refreshStatus();
     try {
       const dto = await api("/api/game/state");
@@ -512,7 +526,11 @@
     } catch (e) {
       $("statusLine").textContent = "状态获取失败：" + e.message;
     }
-    // `?auto=1` is a shareable "watch the policy play" link.
-    if (new URLSearchParams(window.location.search).get("auto") === "1") startAuto();
+    // Autoplay is the default; ?auto=0 (or manual mode) opts out. A stored
+    // session that already ended gets a fresh game instead of a dead board.
+    if (autoByDefault && !manual) {
+      if (current && current.gameOver) newGame();
+      else startAuto();
+    }
   });
 })();

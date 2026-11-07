@@ -227,7 +227,9 @@ CMake（需 LibTorch）：额外目标 `tetris_ai_eval`。
 
 ## 网页演示服务（step 驱动）
 
-线上：<https://tetris.esrrhs.xyz>。
+线上：<https://tetris.esrrhs.xyz>。**打开网页即自动运行**，不需要先点「自动播放」；
+`?auto=0` 可关闭自动播放以便单步 / 手动调试，点「暂停播放」也会关闭。新开一局、
+退出手动模式或刷新页面都会自动续播。
 
 前端**按 step 请求驱动**：一次 `POST /api/game/step` = 一次落点决策 + 一块方块的完整运动帧；
 浏览器用 Canvas 逐帧播放旋转 → 平移 → 逐行下落 → 锁定 → 消行闪白，不自己模拟规则。

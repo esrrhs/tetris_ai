@@ -229,7 +229,10 @@ CMake (needs LibTorch): extra target `tetris_ai_eval`.
 
 ## Step-driven web demo
 
-Live at <https://tetris.esrrhs.xyz>.
+Live at <https://tetris.esrrhs.xyz>. Opening the page starts the policy
+automatically — no button click needed. Append `?auto=0` to disable autoplay
+for stepping / manual play; the pause button turns it off too. A fresh game,
+leaving manual mode or reloading resumes it.
 
 The browser drives the game one request at a time: `POST /api/game/step` performs
 one placement decision and returns the full frame sequence of that piece, which
