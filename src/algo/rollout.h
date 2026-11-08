@@ -72,6 +72,25 @@ struct RolloutConfig {
   // Dense (potential) reward — forwarded to Env.
   tetris::EnvRewardConfig reward{};
 
+  // Terminal-scoring (survival-first, lexicographic) objective.
+  // When enabled, per-step rewards are zeroed and each episode is scored once
+  // at its end:
+  //   real death   R = -deathBase * (1 - n / H)   (strictly negative, and
+  //                  milder the longer the episode lasted)
+  //   capped alive R = +surviveBase + scoreScale * S  (strictly positive;
+  //                  S = score gained in the first scoreWindow pieces only)
+  // H is maxStepsPerGame, n is pieces placed. Score is deliberately counted
+  // only for the first part of the window so that "score high" and "survive
+  // the whole window" are decoupled: the tail is a pure survival test.
+  // A capped episode is NOT bootstrapped — R already is its whole return.
+  // scoreWindow == 0 counts the full window. With terminalScoring=false the
+  // legacy dense-reward path is bit-for-bit unchanged.
+  bool terminalScoring = false;
+  int scoreWindow = 0;
+  float deathBase = 1000.f;
+  float surviveBase = 100.f;
+  float scoreScale = 0.0025f;
+
   // League eval: with non-empty pool, also play
   //   round(gamesPerUpdate * historicalProb)
   // extra games with a sampled historical actor. Those transitions are NOT

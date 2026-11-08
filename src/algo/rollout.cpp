@@ -1,5 +1,6 @@
 #include "algo/rollout.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <mutex>
@@ -26,6 +27,7 @@ void playGame(torch_nn::Actor* actor, torch_nn::Critic* critic,
   env.Reset(gameSeed);
 
   int steps = 0;
+  double windowScore = 0.0;
   epLines = 0;
   epScore = 0;
   epPieces = 0;
@@ -91,8 +93,19 @@ void playGame(torch_nn::Actor* actor, torch_nn::Critic* critic,
     }
 
     auto step = env.Step(options[chosen]);
-    t.reward = static_cast<float>(step.reward);
-    t.terminal = step.done;
+    if (cfg.terminalScoring) {
+      if (cfg.scoreWindow <= 0 ||
+          step.pieces_placed <= cfg.scoreWindow) {
+        windowScore += static_cast<double>(step.score_gain);
+      }
+      // The whole point of terminal scoring: no per-step score, otherwise a
+      // high-scoring death could end up with a positive return.
+      t.reward = 0.0f;
+      t.terminal = step.done;
+    } else {
+      t.reward = static_cast<float>(step.reward);
+      t.terminal = step.done;
+    }
     if (collectTransitions) {
       lastTransition = out.size();
       out.push_back(std::move(t));
@@ -105,9 +118,11 @@ void playGame(torch_nn::Actor* actor, torch_nn::Critic* critic,
   }
 
   // Episode ended only because it hit maxStepsPerGame: bootstrap the tail with
-  // V(s_T) instead of pretending the future is worth zero.
-  if (collectTransitions && critic && hasTransition && !env.Done() &&
-      steps >= cfg.maxStepsPerGame) {
+  // V(s_T) instead of pretending the future is worth zero. In terminal-scoring
+  // mode the capped episode instead receives its full positive return below,
+  // so bootstrapping here would double-count its future.
+  if (!cfg.terminalScoring && collectTransitions && critic && hasTransition &&
+      !env.Done() && steps >= cfg.maxStepsPerGame) {
     std::array<float, tetris::kStateSize> tailState{};
     env.EncodeCriticState(tailState);
     auto tailT = torch::from_blob(tailState.data(),
@@ -120,6 +135,26 @@ void playGame(torch_nn::Actor* actor, torch_nn::Critic* critic,
   epLines = env.game().Lines();
   epScore = env.game().Score();
   epPieces = env.game().PiecesPlaced();
+
+  if (cfg.terminalScoring && collectTransitions && hasTransition) {
+    const double horizon =
+        static_cast<double>(std::max(1, cfg.maxStepsPerGame));
+    const double survivedFrac =
+        std::clamp(static_cast<double>(epPieces) / horizon, 0.0, 1.0);
+    auto& last = out[lastTransition];
+    if (!env.Done() && steps >= cfg.maxStepsPerGame) {
+      // Survived the entire window: strictly positive, and only now does
+      // score enter the objective.
+      last.reward += static_cast<float>(cfg.surviveBase +
+                                        cfg.scoreScale * windowScore);
+    } else {
+      // Real death (or no legal placement left): strictly negative, but the
+      // longer it survived the milder the penalty.
+      last.reward -= static_cast<float>(cfg.deathBase * (1.0 - survivedFrac));
+      last.terminal = true;
+    }
+    last.bootstrapValue = 0.0f;
+  }
 }
 
 void runLearningWorker(const ModelSet& models, const RolloutConfig& cfg,

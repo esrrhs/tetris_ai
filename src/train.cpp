@@ -57,6 +57,18 @@ struct Args {
   float wHole = 1.0f;
   float wBump = 0.5f;
 
+  // Early-death penalty (0 = legacy behaviour). horizon=0 means "use maxSteps".
+  float earlyDeathPenalty = 0.0f;
+  int earlyDeathHorizon = 0;
+  float earlyDeathPower = 1.0f;
+
+  // Terminal scoring: survival-first lexicographic objective (see rollout.h).
+  bool terminalScoring = false;
+  int scoreWindow = 0;
+  float deathBase = 1000.f;
+  float surviveBase = 100.f;
+  float scoreScale = 0.0025f;
+
   int poolSize = 16;
   int archiveSize = 16;
   int poolEvery = 20;
@@ -116,6 +128,22 @@ void parseArgs(int argc, char** argv, Args& a) {
   a.wH = float(std::atof(argValue(argc, argv, "--w-height", "1.0")));
   a.wHole = float(std::atof(argValue(argc, argv, "--w-hole", "1.0")));
   a.wBump = float(std::atof(argValue(argc, argv, "--w-bump", "0.5")));
+  a.earlyDeathPenalty = float(
+      std::atof(argValue(argc, argv, "--early-death-penalty", "0")));
+  a.earlyDeathHorizon =
+      std::atoi(argValue(argc, argv, "--early-death-horizon", "0"));
+  a.earlyDeathPower =
+      float(std::atof(argValue(argc, argv, "--early-death-power", "1")));
+
+  a.terminalScoring = hasFlag(argc, argv, "--terminal-scoring");
+  a.scoreWindow =
+      std::atoi(argValue(argc, argv, "--score-window", "0"));
+  a.deathBase =
+      float(std::atof(argValue(argc, argv, "--death-base", "1000")));
+  a.surviveBase =
+      float(std::atof(argValue(argc, argv, "--survive-base", "100")));
+  a.scoreScale =
+      float(std::atof(argValue(argc, argv, "--score-scale", "0.0025")));
 
   a.poolSize = std::atoi(argValue(argc, argv, "--pool-size", "16"));
   a.archiveSize = std::atoi(argValue(argc, argv, "--archive-size", "16"));
@@ -236,6 +264,19 @@ int main(int argc, char** argv) {
             << " league(recent=" << args.poolSize
             << ",archive=" << args.archiveSize << ",every=" << args.poolEvery
             << ",hist=" << args.histProb << ")\n";
+  std::cout << "  early_death(penalty=" << args.earlyDeathPenalty
+            << ",horizon="
+            << (args.earlyDeathHorizon > 0 ? args.earlyDeathHorizon
+                                           : args.maxSteps)
+            << ",power=" << args.earlyDeathPower << ")\n";
+  if (args.terminalScoring) {
+    std::cout << "  terminal_scoring(score_window=" << args.scoreWindow
+              << ",death_base=" << args.deathBase
+              << ",survive_base=" << args.surviveBase
+              << ",score_scale=" << args.scoreScale << ")"
+              << " gamma=" << args.gamma << " lambda=" << args.lambda
+              << " [per-step reward disabled]\n";
+  }
   std::cout << "  note: rollout inference always on CPU actor/critic copies; "
                "PPO learner on " << deviceName << "\n";
 
@@ -426,6 +467,15 @@ int main(int argc, char** argv) {
   rcfg.reward.wHole = args.wHole;
   rcfg.reward.wBump = args.wBump;
   rcfg.reward.survivalBonus = args.survivalBonus;
+  rcfg.reward.earlyDeathPenalty = args.earlyDeathPenalty;
+  rcfg.reward.earlyDeathHorizon =
+      args.earlyDeathHorizon > 0 ? args.earlyDeathHorizon : args.maxSteps;
+  rcfg.reward.earlyDeathPower = args.earlyDeathPower;
+  rcfg.terminalScoring = args.terminalScoring;
+  rcfg.scoreWindow = args.scoreWindow;
+  rcfg.deathBase = args.deathBase;
+  rcfg.surviveBase = args.surviveBase;
+  rcfg.scoreScale = args.scoreScale;
 
   algo::ModelSet models;
   models.actor = &cpuActor;

@@ -14,6 +14,11 @@
 //   φ = wH * aggregate_height + wHole * holes + wBump * bumpiness
 //   reward = clear_reward + denseCoef * (φ_before - φ_after)
 //   + deathPenalty if the step ends the game.
+// Optional early-death penalty: on a real terminal, additionally subtract a
+// term proportional to the fraction of the episode horizon still unplayed.
+// Length-capped episodes are NOT terminals (rollout bootstraps V(s_T)), so a
+// policy that survives the whole window is never penalised and is free to
+// maximise score within it. See EnvRewardConfig below.
 // This is Tetris board-metric shaping, not DouZero card-oracle reward.
 #pragma once
 
@@ -40,6 +45,19 @@ struct EnvRewardConfig {
   // Combined with a long discount horizon it makes "survive" a real objective
   // instead of an absence of reward between line clears.
   float survivalBonus = 0.0f;
+
+  // Early-death penalty. On a real terminal (spawn collision / top-out) the
+  // step reward additionally loses
+  //   earlyDeathPenalty * (remaining / earlyDeathHorizon)^earlyDeathPower
+  // where remaining = max(0, horizon - pieces_placed). Dying at 25% of the
+  // window therefore costs 0.75^power of the full penalty, while dying at 95%
+  // costs only 0.05^power. Power > 1 concentrates the punishment on genuinely
+  // early deaths and leaves near-cap deaths almost untouched.
+  // earlyDeathPenalty == 0 (or horizon <= 0) disables it entirely: legacy
+  // behaviour, and eval.cpp is unaffected because it never sets these fields.
+  float earlyDeathPenalty = 0.0f;
+  int earlyDeathHorizon = 0;      // episode length used as the 100%-remaining base
+  float earlyDeathPower = 1.0f;   // 1 = linear, 2 = quadratic
 };
 
 // Potential φ(board) used by dense shaping.
