@@ -48,7 +48,7 @@ void ActorImpl::save(const std::string& path) const {
 
 void ActorImpl::load(const std::string& path) {
   torch::serialize::InputArchive archive;
-  archive.load_from(path);
+  archive.load_from(path, torch::kCPU);
   torch::nn::Module::load(archive);
 }
 
@@ -77,7 +77,7 @@ void CriticImpl::save(const std::string& path) const {
 
 void CriticImpl::load(const std::string& path) {
   torch::serialize::InputArchive archive;
-  archive.load_from(path);
+  archive.load_from(path, torch::kCPU);
   torch::nn::Module::load(archive);
 }
 

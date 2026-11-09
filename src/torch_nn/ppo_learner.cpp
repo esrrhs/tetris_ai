@@ -173,7 +173,7 @@ void PPOLearner::saveOptimizer(const std::string& path) const {
 void PPOLearner::loadOptimizer(const std::string& path) {
   if (!std::filesystem::exists(path)) return;
   torch::serialize::InputArchive archive;
-  archive.load_from(path);
+  archive.load_from(path, torch::kCPU);
   torch::serialize::InputArchive aArchive;
   if (archive.try_read("actor_opt", aArchive)) {
     actorOpt->load(aArchive);
