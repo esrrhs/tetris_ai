@@ -36,12 +36,12 @@ struct Args {
   int epochs = 4;
   int minibatch = 256;
   int maxSteps = 500;  // per-episode cap during rollout
-  float survivalBonus = 0.0f;
+  float survivalBonus = 0.02f;
   std::string stateFeatures = "raw";  // raw | clamp | zero
   float lr = 3e-4f;
   float clip = 0.2f;
   float ent = 0.01f;
-  float gamma = 0.99f;
+  float gamma = 0.997f;
   float lambda = 0.95f;
   float targetKL = 0.03f;
   uint64_t seed = 1;
@@ -52,10 +52,12 @@ struct Args {
   bool denseReward = true;
   float denseCoef = 0.01f;
   float lineCoef = 1.0f;
-  float deathPenalty = -1.0f;
+  float deathPenalty = -50.0f;
   float wH = 1.0f;
-  float wHole = 1.0f;
+  float wHole = 4.0f;
   float wBump = 0.5f;
+  float wDanger = 2.0f;
+  float wMaxHeight = 0.5f;
 
   int poolSize = 16;
   int archiveSize = 16;
@@ -93,12 +95,12 @@ void parseArgs(int argc, char** argv, Args& a) {
       argValue(argc, argv, "--mb", std::to_string(a.minibatch).c_str()));
   a.maxSteps = std::atoi(argValue(argc, argv, "--max-steps", "500"));
   a.survivalBonus =
-      float(std::atof(argValue(argc, argv, "--survival-bonus", "0")));
+      float(std::atof(argValue(argc, argv, "--survival-bonus", "0.02")));
   a.stateFeatures = argValue(argc, argv, "--state-features", "raw");
   a.lr = float(std::atof(argValue(argc, argv, "--lr", "3e-4")));
   a.clip = float(std::atof(argValue(argc, argv, "--clip", "0.2")));
   a.ent = float(std::atof(argValue(argc, argv, "--ent", "0.01")));
-  a.gamma = float(std::atof(argValue(argc, argv, "--gamma", "0.99")));
+  a.gamma = float(std::atof(argValue(argc, argv, "--gamma", "0.997")));
   a.lambda = float(std::atof(argValue(argc, argv, "--lambda", "0.95")));
   a.targetKL = float(std::atof(argValue(argc, argv, "--target-kl", "0.03")));
   a.seed = std::atoll(argValue(argc, argv, "--seed", "1"));
@@ -112,10 +114,12 @@ void parseArgs(int argc, char** argv, Args& a) {
   a.denseCoef = float(std::atof(argValue(argc, argv, "--dense-coef", "0.01")));
   a.lineCoef = float(std::atof(argValue(argc, argv, "--line-coef", "1.0")));
   a.deathPenalty =
-      float(std::atof(argValue(argc, argv, "--death-penalty", "-1.0")));
+      float(std::atof(argValue(argc, argv, "--death-penalty", "-50.0")));
   a.wH = float(std::atof(argValue(argc, argv, "--w-height", "1.0")));
-  a.wHole = float(std::atof(argValue(argc, argv, "--w-hole", "1.0")));
+  a.wHole = float(std::atof(argValue(argc, argv, "--w-hole", "4.0")));
   a.wBump = float(std::atof(argValue(argc, argv, "--w-bump", "0.5")));
+  a.wDanger = float(std::atof(argValue(argc, argv, "--w-danger", "2.0")));
+  a.wMaxHeight = float(std::atof(argValue(argc, argv, "--w-max-height", "0.5")));
 
   a.poolSize = std::atoi(argValue(argc, argv, "--pool-size", "16"));
   a.archiveSize = std::atoi(argValue(argc, argv, "--archive-size", "16"));
@@ -403,6 +407,8 @@ int main(int argc, char** argv) {
                  << "max_steps " << args.maxSteps << "\n"
                  << "state_features " << args.stateFeatures << "\n"
                  << "survival_bonus " << args.survivalBonus << "\n"
+                 << "death_penalty " << args.deathPenalty << "\n"
+                 << "gamma " << args.gamma << "\n"
                  << "dense_reward " << (args.denseReward ? 1 : 0) << "\n"
                  << "dense_coef " << args.denseCoef << "\n";
       }
@@ -425,7 +431,10 @@ int main(int argc, char** argv) {
   rcfg.reward.wH = args.wH;
   rcfg.reward.wHole = args.wHole;
   rcfg.reward.wBump = args.wBump;
+  rcfg.reward.wDanger = args.wDanger;
+  rcfg.reward.wMaxHeight = args.wMaxHeight;
   rcfg.reward.survivalBonus = args.survivalBonus;
+  rcfg.reward.gamma = args.gamma;
 
   algo::ModelSet models;
   models.actor = &cpuActor;

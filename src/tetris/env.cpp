@@ -25,19 +25,30 @@ EnvStepResult Env::MakeResult(double reward, int lines_cleared, int score_gain,
 
 double Env::ShapeReward(const BoardMetrics& before, const BoardMetrics& after,
                         int score_gain, bool done) const {
-  // Scale by /40 so a single clear (40 pts, no combo) ≈ lineCoef * 1.0.
-  double reward = static_cast<double>(reward_.lineCoef) *
-                  (static_cast<double>(score_gain) / 40.0);
+  double reward = 0.0;
+  if (done) {
+    // When done, survival is broken. Even if this step had line clears,
+    // death should never be rewarded as a net positive action.
+    double lineReward = static_cast<double>(reward_.lineCoef) *
+                        (static_cast<double>(score_gain) / 40.0);
+    reward = lineReward + static_cast<double>(reward_.deathPenalty);
+    if (reward_.deathPenalty < 0.f && reward > static_cast<double>(reward_.deathPenalty)) {
+      reward = static_cast<double>(reward_.deathPenalty);
+    }
+  } else {
+    // Scale by /40 so a single clear (40 pts, no combo) ≈ lineCoef * 1.0.
+    reward = static_cast<double>(reward_.lineCoef) *
+             (static_cast<double>(score_gain) / 40.0);
+    if (reward_.survivalBonus != 0.f) {
+      reward += static_cast<double>(reward_.survivalBonus);
+    }
+  }
+
   if (reward_.denseReward) {
     float phiBefore = BoardPotential(before, reward_);
     float phiAfter = BoardPotential(after, reward_);
     reward += static_cast<double>(reward_.denseCoef) *
-              static_cast<double>(phiBefore - phiAfter);
-  }
-  if (done) {
-    reward += static_cast<double>(reward_.deathPenalty);
-  } else if (reward_.survivalBonus != 0.f) {
-    reward += static_cast<double>(reward_.survivalBonus);
+              static_cast<double>(phiBefore - reward_.gamma * phiAfter);
   }
   return reward;
 }

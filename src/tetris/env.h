@@ -40,12 +40,37 @@ struct EnvRewardConfig {
   // Combined with a long discount horizon it makes "survive" a real objective
   // instead of an absence of reward between line clears.
   float survivalBonus = 0.0f;
+  // Discount factor used by potential-based reward shaping: phi(s) - gamma * phi(s').
+  // Default 1.0f keeps legacy (undiscounted difference) behaviour.
+  float gamma = 1.0f;
+  // Weight for non-linear danger height penalty (sum of (h - 13)^2 for columns with h > 13).
+  float wDanger = 0.0f;
+  // Weight for max column height.
+  float wMaxHeight = 0.0f;
 };
 
 // Potential φ(board) used by dense shaping.
 inline float BoardPotential(const BoardMetrics& m, const EnvRewardConfig& cfg) {
-  return cfg.wH * m.aggregate_height + cfg.wHole * m.holes +
-         cfg.wBump * m.bumpiness;
+  float pot = cfg.wH * m.aggregate_height + cfg.wHole * m.holes +
+              cfg.wBump * m.bumpiness;
+  if (cfg.wDanger > 0.0f) {
+    float danger = 0.0f;
+    for (int x = 0; x < kBoardWidth; ++x) {
+      if (m.heights[static_cast<size_t>(x)] > 13.0f) {
+        float diff = m.heights[static_cast<size_t>(x)] - 13.0f;
+        danger += diff * diff;
+      }
+    }
+    pot += cfg.wDanger * danger;
+  }
+  if (cfg.wMaxHeight > 0.0f) {
+    float maxH = 0.0f;
+    for (int x = 0; x < kBoardWidth; ++x) {
+      maxH = std::max(maxH, m.heights[static_cast<size_t>(x)]);
+    }
+    pot += cfg.wMaxHeight * maxH;
+  }
+  return pot;
 }
 
 struct EnvStepResult {
