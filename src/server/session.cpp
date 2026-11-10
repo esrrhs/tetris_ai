@@ -245,7 +245,9 @@ Json GameSession::state(const std::string& sessionId, const ModelPolicy& model,
   float maxH = 0.f;
   for (int x = 0; x < tetris::kBoardWidth; ++x) {
     heights.push(Json::real(m.heights[static_cast<size_t>(x)]));
-    maxH = std::max(maxH, m.heights[static_cast<size_t>(x)]);
+    if (m.heights[static_cast<size_t>(x)] > maxH) {
+      maxH = m.heights[static_cast<size_t>(x)];
+    }
   }
   metrics.set("heights", std::move(heights));
   metrics.set("holes", Json::real(m.holes));

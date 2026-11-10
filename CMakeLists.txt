@@ -10,7 +10,7 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 if(MSVC)
-  add_compile_options(/utf-8)
+  add_compile_options(/utf-8 /DNOMINMAX)
 else()
   if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64|AMD64)")
     set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -DNDEBUG")

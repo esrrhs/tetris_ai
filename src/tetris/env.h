@@ -17,6 +17,7 @@
 // This is Tetris board-metric shaping, not DouZero card-oracle reward.
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <optional>
@@ -66,7 +67,9 @@ inline float BoardPotential(const BoardMetrics& m, const EnvRewardConfig& cfg) {
   if (cfg.wMaxHeight > 0.0f) {
     float maxH = 0.0f;
     for (int x = 0; x < kBoardWidth; ++x) {
-      maxH = std::max(maxH, m.heights[static_cast<size_t>(x)]);
+      if (m.heights[static_cast<size_t>(x)] > maxH) {
+        maxH = m.heights[static_cast<size_t>(x)];
+      }
     }
     pot += cfg.wMaxHeight * maxH;
   }
