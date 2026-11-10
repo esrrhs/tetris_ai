@@ -321,8 +321,9 @@
   }
 
   function renderState(state) {
-    if (!state || state.error) {
-      if (state && state.error) toast(state.error);
+    if (!state) return;
+    if (state.error && !state.board && !state.gameOver) {
+      toast(state.error);
       return;
     }
     current = state;
@@ -339,18 +340,19 @@
     renderNext(state.next);
     renderDecision(state.decision);
     $("sessionLabel").textContent = (state.sessionId || "").slice(0, 18);
-    $("statusLine").textContent = `STEP ${state.step} · ` +
-      `${state.backend === "model" ? "神经网络" : "启发式教师"} · seed ${state.seed}`;
+    $("statusLine").textContent = state.gameOver
+      ? `游戏结束 · 得分 ${state.score.toLocaleString()} · 共 ${state.pieces} 块`
+      : `STEP ${state.step} · ${state.backend === "model" ? "神经网络" : "启发式教师"} · seed ${state.seed}`;
     const overlay = $("boardOverlay");
     if (state.gameOver) {
       $("overlayTitle").textContent = "游戏结束";
-      $("overlaySub").textContent = `存活 ${state.pieces} 块 · 消 ${state.lines} 行 · 得分 ${state.score}\n点击「再来一局」重新发牌`;
+      $("overlaySub").textContent = `存活 ${state.pieces} 块 · 消 ${state.lines} 行 · 得分 ${state.score.toLocaleString()}\n点击「再来一局」重新开始`;
       overlay.classList.remove("hidden");
       stopAuto();
     } else {
       overlay.classList.add("hidden");
     }
-    $("liveDot").className = "live-dot on";
+    $("liveDot").className = "live-dot " + (state.gameOver ? "warn" : "on");
   }
 
   async function refreshStatus() {
@@ -386,12 +388,18 @@
         method: "POST",
         body: JSON.stringify({ count }),
       });
-      if (dto.error) { toast(dto.error); stopAuto(); return dto; }
+      if (!dto) return null;
+      if (dto.gameOver) {
+        stopAuto();
+      }
       if (count === 1 && dto.animation) {
         await animatePiece(dto.animation, dto, myEpoch);
       }
       if (myEpoch !== epoch) return dto;
       renderState(dto);
+      if (dto.error && !dto.gameOver) {
+        toast(dto.error);
+      }
       addLog(dto, count > 1 ? count : 0);
       return dto;
     } catch (e) {
@@ -410,8 +418,10 @@
       const dto = await api("/api/game/tick", {
         method: "POST", body: JSON.stringify({ ops }),
       });
-      if (dto.error) { toast(dto.error); return; }
+      if (!dto) return;
+      if (dto.gameOver) stopAuto();
       renderState(dto);
+      if (dto.error && !dto.gameOver) toast(dto.error);
       addLog(dto, 0);
     } catch (e) {
       toast("请求失败：" + e.message);
@@ -423,7 +433,10 @@
   async function autoLoop() {
     while (auto && !manual) {
       const dto = await stepOnce(1);
-      if (!dto || dto.error || dto.gameOver) { stopAuto(); break; }
+      if (!dto || dto.gameOver) {
+        stopAuto();
+        break;
+      }
       await sleep(Math.max(0, frameDelay() * 1.3));
     }
   }
@@ -443,6 +456,7 @@
 
   async function newGame() {
     stopAuto();
+    $("boardOverlay").classList.add("hidden");
     ++epoch;
     setBusy(true);
     let ok = false;

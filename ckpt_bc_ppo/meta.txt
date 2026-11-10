@@ -1,8 +1,10 @@
-update 12
+update 180
 seed 1
-lr 0.0001
-max_steps 4000
+lr 5e-05
+max_steps 2000
 state_features zero
-survival_bonus 0.01
+survival_bonus 0.02
+death_penalty -50
+gamma 0.997
 dense_reward 1
-dense_coef 0.08
+dense_coef 0.01

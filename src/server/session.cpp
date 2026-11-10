@@ -264,7 +264,7 @@ Json GameSession::state(const std::string& sessionId, const ModelPolicy& model,
 Json GameSession::step(const std::string& sessionId, const ModelPolicy& model,
                        bool greedy) {
   if (env_.Done()) {
-    return state(sessionId, model, "游戏已结束，请新开一局");
+    return state(sessionId, model);
   }
   auto beforeBoard = env_.game().board();
   auto beforeActive = env_.game().Active();
