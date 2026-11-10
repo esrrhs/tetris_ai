@@ -10,16 +10,13 @@ cmake-build-*/
 *.a
 *.user
 
-# Local checkpoints / weights. Only the two published checkpoints are tracked;
+# Local checkpoints / weights. Only the published checkpoint is tracked;
 # scratch runs (ckpt_smoke / ckpt_bc_smoke / ckpt_cuda), optimizer state and
 # league pools stay local.
 ckpt/
 ckpt_*/
 *.pt
-!ckpt_bc/
 !ckpt_bc_ppo/
-!ckpt_bc/actor.pt
-!ckpt_bc/critic.pt
 !ckpt_bc_ppo/actor.pt
 !ckpt_bc_ppo/critic.pt
 # LibTorch-free export used by the production web service.

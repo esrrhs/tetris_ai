@@ -1,6 +1,0 @@
-update 0
-mode bc_dagger
-iter 20
-state_features zero
-hidden 256
-seed 11
